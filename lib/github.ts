@@ -56,8 +56,15 @@ export async function injectWidget(
   chatbotName: string,
   appUrl: string
 ): Promise<boolean> {
-  // 1. Try standard HTML files (static sites, CRA)
-  const htmlCandidates = ['index.html', 'public/index.html', 'src/index.html'];
+  // 1. Try standard HTML files (static sites, CRA, Vue CLI, Angular, SvelteKit)
+  const htmlCandidates = [
+    'index.html',
+    'public/index.html',
+    'src/index.html',      // Angular, some React setups
+    'src/app.html',        // SvelteKit
+    'static/index.html',
+    'dist/index.html',
+  ];
   for (const path of htmlCandidates) {
     const ok = await tryInjectIntoHtmlFile(token, owner, repo, path, webhookUrl, chatbotName, appUrl);
     if (ok) return true;
@@ -83,7 +90,11 @@ export async function injectWidget(
     if (ok) return true;
   }
 
-  // 4. Fallback: create standalone helper file (user still needs to link it)
+  // 4. Scan repo root for any .html file not already tried
+  const rootOk = await tryInjectIntoRootHtml(token, owner, repo, htmlCandidates, webhookUrl, chatbotName, appUrl);
+  if (rootOk) return true;
+
+  // 5. Last resort: create standalone helper file (user needs to link it manually)
   await createStandaloneWidgetFile(token, owner, repo, webhookUrl, chatbotName, appUrl);
   return false;
 }
@@ -144,9 +155,13 @@ async function tryInjectIntoNextLayout(
   const file = await res.json();
   const content = Buffer.from(file.content, 'base64').toString('utf-8');
 
-  const marker = '{children}';
+  const marker = content.includes('{children}')
+    ? '{children}'
+    : content.includes('{ children }')
+    ? '{ children }'
+    : null;
+  if (!marker) return false;
   const idx = content.indexOf(marker);
-  if (idx === -1) return false;
 
   const safeUrl = webhookUrl.replace(/[`"\\]/g, '');
   const safeName = chatbotName.replace(/[`"\\]/g, '');
@@ -207,6 +222,29 @@ async function tryInjectIntoNextDocument(
     }),
   });
   return putRes.ok;
+}
+
+async function tryInjectIntoRootHtml(
+  token: string,
+  owner: string,
+  repo: string,
+  alreadyTried: string[],
+  webhookUrl: string,
+  chatbotName: string,
+  appUrl: string
+): Promise<boolean> {
+  const headers = makeHeaders(token);
+  const res = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/contents/`, { headers });
+  if (!res.ok) return false;
+  const files = await res.json();
+  if (!Array.isArray(files)) return false;
+  const htmlFiles = (files as { type: string; name: string; path: string }[])
+    .filter((f) => f.type === 'file' && f.name.endsWith('.html') && !alreadyTried.includes(f.path));
+  for (const f of htmlFiles) {
+    const ok = await tryInjectIntoHtmlFile(token, owner, repo, f.path, webhookUrl, chatbotName, appUrl);
+    if (ok) return true;
+  }
+  return false;
 }
 
 async function createStandaloneWidgetFile(
