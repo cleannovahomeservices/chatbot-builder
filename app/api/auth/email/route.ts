@@ -10,42 +10,58 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Email y contraseña requeridos' }, { status: 400 });
   }
 
-  const supabase = createClient(
+  // Use service role for admin auth operations so we can auto-confirm emails
+  const adminAuth = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
     { auth: { autoRefreshToken: false, persistSession: false } }
   );
 
-  const authResult =
-    action === 'signup'
-      ? await supabase.auth.signUp({ email, password })
-      : await supabase.auth.signInWithPassword({ email, password });
+  let authUser;
 
-  const { data: authData, error: authError } = authResult;
-
-  if (authError) {
-    const msg =
-      authError.message === 'Invalid login credentials'
-        ? 'Email o contraseña incorrectos'
-        : authError.message === 'User already registered'
-        ? 'Ya existe una cuenta con ese email. Inicia sesión.'
-        : authError.message;
-    return NextResponse.json({ error: msg }, { status: 400 });
+  if (action === 'signup') {
+    // Create user with email pre-confirmed — no confirmation email needed
+    const { data, error } = await adminAuth.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+    });
+    if (error) {
+      const msg =
+        error.message.includes('already been registered') || error.message.includes('already exists')
+          ? 'Ya existe una cuenta con ese email. Inicia sesión.'
+          : error.message;
+      return NextResponse.json({ error: msg }, { status: 400 });
+    }
+    authUser = data.user;
+  } else {
+    // Sign in
+    const anonClient = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      { auth: { autoRefreshToken: false, persistSession: false } }
+    );
+    const { data, error } = await anonClient.auth.signInWithPassword({ email, password });
+    if (error) {
+      const msg =
+        error.message === 'Invalid login credentials'
+          ? 'Email o contraseña incorrectos'
+          : error.message === 'Email not confirmed'
+          ? 'Confirma tu email antes de iniciar sesión'
+          : error.message;
+      return NextResponse.json({ error: msg }, { status: 400 });
+    }
+    authUser = data.user;
   }
 
-  if (!authData?.user) {
+  if (!authUser) {
     return NextResponse.json({ error: 'Error de autenticación' }, { status: 400 });
   }
 
-  // signUp with email confirmation enabled returns user but no session
-  // We treat these users as authenticated immediately
-  const authUser = authData.user;
   const emailId = `email:${authUser.id}`;
-
   const db = createAdminClient();
   let user;
 
-  // Find existing user by email auth ID
   const { data: existing } = await db
     .from('users')
     .select('*')
@@ -55,7 +71,6 @@ export async function POST(request: NextRequest) {
   if (existing) {
     user = existing;
   } else {
-    // Check if a GitHub or Google user has the same email — link accounts
     const { data: byGithubEmail } = await db
       .from('users')
       .select('*')
@@ -69,7 +84,6 @@ export async function POST(request: NextRequest) {
 
     const linked = byGithubEmail ?? byGoogleEmail;
     if (linked) {
-      // Link email auth to existing account
       const { data } = await db
         .from('users')
         .update({ google_id: emailId, updated_at: new Date().toISOString() })
@@ -78,7 +92,6 @@ export async function POST(request: NextRequest) {
         .single();
       user = data;
     } else {
-      // New email-only user — store using existing columns
       const { data, error: insertError } = await db
         .from('users')
         .insert({
