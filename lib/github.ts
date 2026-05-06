@@ -1,9 +1,9 @@
 const GITHUB_API = 'https://api.github.com';
 
-export function getOAuthUrl(state: string): string {
+export function getOAuthUrl(state: string, origin: string): string {
   const params = new URLSearchParams({
     client_id: process.env.GITHUB_CLIENT_ID!,
-    redirect_uri: `${process.env.NEXT_PUBLIC_APP_URL}/api/auth/callback`,
+    redirect_uri: `${origin}/api/auth/callback`,
     scope: 'read:user user:email repo',
     state,
   });

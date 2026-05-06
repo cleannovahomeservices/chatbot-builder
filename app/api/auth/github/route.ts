@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
   }
 
   const state = crypto.randomBytes(16).toString('hex');
-  const oauthUrl = getOAuthUrl(state);
+  const oauthUrl = getOAuthUrl(state, appUrl);
   const response = NextResponse.redirect(oauthUrl);
 
   response.cookies.set('github_oauth_state', state, {
