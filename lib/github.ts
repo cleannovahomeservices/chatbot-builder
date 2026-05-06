@@ -64,6 +64,17 @@ export async function injectWidget(
 ): Promise<InjectResult> {
   const headers = makeHeaders(token);
 
+  // Verify token actually has write access before scanning
+  const permRes = await fetch(`${GITHUB_API}/repos/${owner}/${repo}`, { headers });
+  if (permRes.ok) {
+    const repoData = await permRes.json();
+    const perms = repoData.permissions ?? {};
+    console.log(`[inject] ${owner}/${repo}: permissions push=${perms.push} admin=${perms.admin}`);
+    if (!perms.push) {
+      return { injected: false, reason: `token sin permiso de escritura en ${owner}/${repo} (push=false). Asegúrate de que el repo es tuyo o tienes acceso de escritura.` };
+    }
+  }
+
   const treeRes = await fetch(
     `${GITHUB_API}/repos/${owner}/${repo}/git/trees/HEAD?recursive=1`,
     { headers }
@@ -86,16 +97,18 @@ export async function injectWidget(
 
   const layout = files.find((f) => /^(src\/)?app\/layout\.[jt]sx?$/.test(f));
   if (layout) {
-    const ok = await tryInjectIntoNextLayout(token, owner, repo, layout, webhookUrl, chatbotName, appUrl);
-    if (ok) return { injected: true, file: layout };
-    console.error(`[inject] layout found (${layout}) but PUT failed`);
+    const result = await tryInjectIntoNextLayout(token, owner, repo, layout, webhookUrl, chatbotName, appUrl);
+    if (result.ok) return { injected: true, file: layout };
+    console.error(`[inject] layout PUT failed: ${result.error}`);
+    return { injected: false, reason: `layout encontrado (${layout}) pero PUT falló: ${result.error}` };
   }
 
   const document = files.find((f) => /^(src\/)?pages\/_document\.[jt]sx?$/.test(f));
   if (document) {
-    const ok = await tryInjectIntoNextDocument(token, owner, repo, document, webhookUrl, chatbotName, appUrl);
-    if (ok) return { injected: true, file: document };
-    console.error(`[inject] _document found (${document}) but PUT failed`);
+    const result = await tryInjectIntoNextDocument(token, owner, repo, document, webhookUrl, chatbotName, appUrl);
+    if (result.ok) return { injected: true, file: document };
+    console.error(`[inject] _document PUT failed: ${result.error}`);
+    return { injected: false, reason: `_document encontrado pero PUT falló: ${result.error}` };
   }
 
   const htmlFiles = files
@@ -105,8 +118,9 @@ export async function injectWidget(
   console.log(`[inject] HTML candidates: ${htmlFiles.slice(0, 5).join(', ') || 'none'}`);
 
   for (const path of htmlFiles) {
-    const ok = await tryInjectIntoHtmlFile(token, owner, repo, path, webhookUrl, chatbotName, appUrl);
-    if (ok) return { injected: true, file: path };
+    const result = await tryInjectIntoHtmlFile(token, owner, repo, path, webhookUrl, chatbotName, appUrl);
+    if (result.ok) return { injected: true, file: path };
+    console.error(`[inject] HTML PUT failed for ${path}: ${result.error}`);
   }
 
   const reason = (layout || document || htmlFiles.length > 0)
@@ -125,6 +139,11 @@ function makeHeaders(token: string) {
   };
 }
 
+interface TryResult {
+  ok: boolean;
+  error?: string;
+}
+
 async function tryInjectIntoHtmlFile(
   token: string,
   owner: string,
@@ -133,14 +152,15 @@ async function tryInjectIntoHtmlFile(
   webhookUrl: string,
   chatbotName: string,
   appUrl: string
-): Promise<boolean> {
+): Promise<TryResult> {
   const headers = makeHeaders(token);
   const res = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/contents/${filePath}`, { headers });
-  if (!res.ok) return false;
+  if (!res.ok) return { ok: false, error: `GET ${res.status}` };
 
   const file = await res.json();
+  if (!file.content) return { ok: false, error: 'file content empty (may be too large)' };
   const content = Buffer.from(file.content, 'base64').toString('utf-8');
-  if (!content.includes('</body>')) return false;
+  if (!content.includes('</body>')) return { ok: false, error: 'no </body> tag found' };
 
   const snippet = `\n  <!-- Chatbot: ${chatbotName} -->\n  <script>window.ChatbotConfig={webhookUrl:"${webhookUrl}",name:"${chatbotName}"};</script>\n  <script src="${appUrl}/widget.js" async defer></script>`;
   const updated = content.replace('</body>', `${snippet}\n</body>`);
@@ -154,7 +174,9 @@ async function tryInjectIntoHtmlFile(
       sha: file.sha,
     }),
   });
-  return putRes.ok;
+  if (putRes.ok) return { ok: true };
+  const body = await putRes.text();
+  return { ok: false, error: `PUT ${putRes.status}: ${body.slice(0, 200)}` };
 }
 
 async function tryInjectIntoNextLayout(
@@ -165,12 +187,13 @@ async function tryInjectIntoNextLayout(
   webhookUrl: string,
   chatbotName: string,
   appUrl: string
-): Promise<boolean> {
+): Promise<TryResult> {
   const headers = makeHeaders(token);
   const res = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/contents/${filePath}`, { headers });
-  if (!res.ok) return false;
+  if (!res.ok) return { ok: false, error: `GET ${res.status}` };
 
   const file = await res.json();
+  if (!file.content) return { ok: false, error: 'file content empty (may be too large)' };
   const content = Buffer.from(file.content, 'base64').toString('utf-8');
 
   const marker = content.includes('{children}')
@@ -178,7 +201,7 @@ async function tryInjectIntoNextLayout(
     : content.includes('{ children }')
     ? '{ children }'
     : null;
-  if (!marker) return false;
+  if (!marker) return { ok: false, error: 'no {children} marker found in layout' };
   const idx = content.indexOf(marker);
 
   const safeUrl = webhookUrl.replace(/[`"\\]/g, '');
@@ -196,7 +219,9 @@ async function tryInjectIntoNextLayout(
       sha: file.sha,
     }),
   });
-  return putRes.ok;
+  if (putRes.ok) return { ok: true };
+  const body = await putRes.text();
+  return { ok: false, error: `PUT ${putRes.status}: ${body.slice(0, 200)}` };
 }
 
 async function tryInjectIntoNextDocument(
@@ -207,12 +232,13 @@ async function tryInjectIntoNextDocument(
   webhookUrl: string,
   chatbotName: string,
   appUrl: string
-): Promise<boolean> {
+): Promise<TryResult> {
   const headers = makeHeaders(token);
   const res = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/contents/${filePath}`, { headers });
-  if (!res.ok) return false;
+  if (!res.ok) return { ok: false, error: `GET ${res.status}` };
 
   const file = await res.json();
+  if (!file.content) return { ok: false, error: 'file content empty (may be too large)' };
   const content = Buffer.from(file.content, 'base64').toString('utf-8');
 
   const safeUrl = webhookUrl.replace(/[`"\\]/g, '');
@@ -227,7 +253,7 @@ async function tryInjectIntoNextDocument(
     const idx = content.indexOf('{children}');
     updated = content.slice(0, idx) + snippet + content.slice(idx);
   } else {
-    return false;
+    return { ok: false, error: 'no </Head> or {children} found' };
   }
 
   const putRes = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/contents/${filePath}`, {
@@ -239,7 +265,9 @@ async function tryInjectIntoNextDocument(
       sha: file.sha,
     }),
   });
-  return putRes.ok;
+  if (putRes.ok) return { ok: true };
+  const body = await putRes.text();
+  return { ok: false, error: `PUT ${putRes.status}: ${body.slice(0, 200)}` };
 }
 
 async function createStandaloneWidgetFile(
