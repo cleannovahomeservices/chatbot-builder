@@ -30,7 +30,14 @@ export default async function DashboardPage() {
       <nav className="border-b border-white/10 px-6 py-4 flex items-center justify-between">
         <span className="font-bold text-lg">Chatbot Builder</span>
         <div className="flex items-center gap-4">
-{(user.github_avatar_url ?? user.google_avatar_url) && (
+          <a
+            href="/api/auth/github/revoke"
+            className="text-xs text-white/30 hover:text-white/60 transition"
+            title="Revocar y reconectar GitHub con permisos correctos"
+          >
+            Reconectar GitHub
+          </a>
+          {(user.github_avatar_url ?? user.google_avatar_url) && (
             <img
               src={user.github_avatar_url ?? user.google_avatar_url ?? undefined}
               alt={user.github_username ?? user.google_name ?? undefined}
