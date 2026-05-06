@@ -9,10 +9,11 @@ export async function GET(request: NextRequest) {
   const input = searchParams.get('input');
   const rawNext = searchParams.get('next') ?? '';
   const next = rawNext.startsWith('/') ? rawNext : '';
+  const force = searchParams.get('force') === 'true';
   const appUrl = new URL(request.url).origin;
 
   const existingUser = await getSession();
-  if (existingUser) {
+  if (existingUser && !force) {
     if (existingUser.github_access_token) {
       // Already has GitHub — skip OAuth and go directly to destination
       const dest = next

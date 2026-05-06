@@ -475,8 +475,21 @@ export function CreateWizard({
                   <pre className="text-xs text-violet-300 whitespace-pre-wrap break-all">{`<script>window.ChatbotConfig={webhookUrl:"${createdChatbot?.n8n_webhook_url}"};</script>\n<script src="https://chatbot-builder-iota.vercel.app/widget.js" async defer></script>`}</pre>
                 </div>
                 {injectReason && (
-                  <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-left mb-4">
-                    <p className="text-xs text-amber-400/80">Inyección automática no completada: {injectReason}</p>
+                  <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 text-left mb-4">
+                    <p className="text-xs text-amber-400/80 mb-3">Inyección automática no completada: {injectReason}</p>
+                    {injectReason.includes('write permissions') && (
+                      <button
+                        onClick={() => {
+                          sessionStorage.setItem('wizard_resume', JSON.stringify({
+                            prompt, userInput, inputMode, chatbotName,
+                          }));
+                          window.location.href = '/api/auth/github?next=/create&force=true';
+                        }}
+                        className="w-full rounded-lg bg-amber-500/20 border border-amber-500/30 px-4 py-2 text-xs font-semibold text-amber-300 hover:bg-amber-500/30 transition cursor-pointer"
+                      >
+                        Reconectar GitHub con permisos de escritura →
+                      </button>
+                    )}
                   </div>
                 )}
               </>
