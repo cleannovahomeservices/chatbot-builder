@@ -21,6 +21,11 @@ export async function exchangeCodeForToken(code: string): Promise<string> {
     }),
   });
   const data = await res.json();
+  if (!data.access_token) {
+    console.error('[github] token exchange failed:', JSON.stringify(data));
+    throw new Error(`GitHub token exchange failed: ${data.error_description ?? data.error ?? 'unknown'}`);
+  }
+  console.log('[github] token exchange OK, scopes:', data.scope);
   return data.access_token;
 }
 
@@ -64,6 +69,29 @@ export async function injectWidget(
   appUrl: string
 ): Promise<InjectResult> {
   const headers = makeHeaders(token);
+
+  // Diagnose: who does this token belong to and does it have push access?
+  let tokenOwner = 'desconocido';
+  let hasPush = false;
+  const meRes = await fetch(`${GITHUB_API}/user`, { headers });
+  if (meRes.ok) {
+    const me = await meRes.json();
+    tokenOwner = me.login ?? 'desconocido';
+    console.log(`[inject] token belongs to GitHub user: ${tokenOwner}`);
+  } else {
+    console.error(`[inject] token invalid — GET /user returned ${meRes.status}`);
+    return { injected: false, reason: `Token de GitHub inválido (GET /user: ${meRes.status}). Desconecta y vuelve a conectar GitHub.` };
+  }
+
+  const permRes = await fetch(`${GITHUB_API}/repos/${owner}/${repo}`, { headers });
+  if (permRes.ok) {
+    const repoData = await permRes.json();
+    hasPush = repoData.permissions?.push ?? false;
+    console.log(`[inject] ${owner}/${repo}: push=${hasPush}, token owner=${tokenOwner}`);
+    if (!hasPush) {
+      return { injected: false, reason: `La cuenta GitHub "${tokenOwner}" no tiene permiso de escritura en ${owner}/${repo}. Necesitas conectar la cuenta que es dueña del repo.` };
+    }
+  }
 
   const treeRes = await fetch(
     `${GITHUB_API}/repos/${owner}/${repo}/git/trees/HEAD?recursive=1`,
