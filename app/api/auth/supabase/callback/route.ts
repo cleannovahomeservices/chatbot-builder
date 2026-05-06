@@ -6,6 +6,8 @@ import { createSession, SESSION_COOKIE_NAME, SESSION_DURATION_SECONDS } from '@/
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const code = searchParams.get('code');
+  const rawNext = searchParams.get('next') ?? '/dashboard';
+  const next = rawNext.startsWith('/') ? rawNext : '/dashboard';
   const appUrl = new URL(request.url).origin;
 
   if (!code) return NextResponse.redirect(`${appUrl}/?error=auth_failed`);
@@ -31,6 +33,7 @@ export async function GET(request: NextRequest) {
   } = await supabase.auth.exchangeCodeForSession(code);
 
   if (error || !session?.user) {
+    console.error('exchangeCodeForSession error:', error?.message);
     return NextResponse.redirect(`${appUrl}/?error=auth_failed`);
   }
 
@@ -104,10 +107,7 @@ export async function GET(request: NextRequest) {
   if (!user) return NextResponse.redirect(`${appUrl}/?error=auth_failed`);
 
   const sessionToken = await createSession(user);
-  const redirectTo =
-    request.cookies.get('post_auth_redirect')?.value ?? `${appUrl}/dashboard`;
-
-  const response = NextResponse.redirect(redirectTo);
+  const response = NextResponse.redirect(new URL(next, appUrl));
 
   cookieJar.forEach(({ name, value, options }) => {
     response.cookies.set(name, value, options as Parameters<typeof response.cookies.set>[2]);
@@ -120,7 +120,6 @@ export async function GET(request: NextRequest) {
     maxAge: SESSION_DURATION_SECONDS,
     path: '/',
   });
-  response.cookies.delete('post_auth_redirect');
 
   return response;
 }

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Image from "next/image";
+import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 
 const IconGithub = (props: React.SVGProps<SVGSVGElement>) => (
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" {...props}>
@@ -35,11 +36,24 @@ export function LoginForm({ mode, input }: LoginFormProps) {
 
   const isCreating = !!(mode && input);
 
-  function loginWith(provider: "github" | "google") {
+  function loginWithGithub() {
     const params = new URLSearchParams();
     if (mode) params.set("mode", mode);
     if (input) params.set("input", input);
-    window.location.href = `/api/auth/${provider}?${params}`;
+    window.location.href = `/api/auth/github?${params}`;
+  }
+
+  async function loginWithGoogle() {
+    const next = mode && input
+      ? `/create?mode=${mode}&input=${encodeURIComponent(input)}`
+      : "/dashboard";
+    const supabase = createSupabaseBrowserClient();
+    await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: `${window.location.origin}/api/auth/supabase/callback?next=${encodeURIComponent(next)}`,
+      },
+    });
   }
 
   async function handleEmailAuth() {
@@ -92,14 +106,14 @@ export function LoginForm({ mode, input }: LoginFormProps) {
 
         <div className="space-y-3 mb-6">
           <button
-            onClick={() => loginWith("github")}
+            onClick={loginWithGithub}
             className="flex w-full items-center justify-center gap-2.5 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-medium text-white hover:bg-white/10 transition cursor-pointer"
           >
             <IconGithub className="h-4 w-4" />
             Continuar con GitHub
           </button>
           <button
-            onClick={() => loginWith("google")}
+            onClick={loginWithGoogle}
             className="flex w-full items-center justify-center gap-2.5 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-medium text-white hover:bg-white/10 transition cursor-pointer"
           >
             <IconGoogle className="h-4 w-4" />
