@@ -26,11 +26,11 @@ interface LoginFormProps {
 }
 
 export function LoginForm({ mode, input }: LoginFormProps) {
-  function loginWithGithub() {
+  function loginWith(provider: 'github' | 'google') {
     const params = new URLSearchParams();
     if (mode) params.set("mode", mode);
     if (input) params.set("input", input);
-    window.location.href = `/api/auth/github?${params}`;
+    window.location.href = `/api/auth/${provider}?${params}`;
   }
 
   const isCreating = !!(mode && input);
@@ -49,14 +49,13 @@ export function LoginForm({ mode, input }: LoginFormProps) {
         primaryAction={{
           label: "Continuar con GitHub",
           icon: <IconGithub className="mr-2 h-4 w-4" />,
-          onClick: loginWithGithub,
+          onClick: () => loginWith('github'),
         }}
         secondaryActions={[
           {
-            label: "Continuar con Google (próximamente)",
+            label: "Continuar con Google",
             icon: <IconGoogle className="mr-2 h-4 w-4" />,
-            onClick: () => {},
-            disabled: true,
+            onClick: () => loginWith('google'),
           },
         ]}
         footerContent={
