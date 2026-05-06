@@ -8,7 +8,7 @@ export async function GET(request: NextRequest) {
   const code = searchParams.get('code');
   const state = searchParams.get('state');
   const storedState = request.cookies.get('github_oauth_state')?.value;
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+  const appUrl = new URL(request.url).origin;
 
   if (!code || !state || state !== storedState) {
     return NextResponse.redirect(`${appUrl}/?error=auth_failed`);

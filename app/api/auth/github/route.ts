@@ -7,7 +7,7 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const mode = searchParams.get('mode');
   const input = searchParams.get('input');
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+  const appUrl = new URL(request.url).origin;
 
   // If already logged in, skip OAuth and go straight to destination
   const existingUser = await getSession();
