@@ -17,12 +17,15 @@ export async function POST(request: NextRequest) {
   const db = createAdminClient();
   const webhookPath = `cb-${crypto.randomBytes(8).toString('hex')}`;
 
+  let step = 'n8n';
   try {
     const { workflowId, webhookUrl } = await createChatbotWorkflow(name, systemPrompt, webhookPath);
 
+    step = 'github';
     const [owner, repo] = githubRepo.split('/');
     await injectWidget(user.github_access_token, owner, repo, webhookUrl, name);
 
+    step = 'supabase';
     const { data: chatbot, error } = await db
       .from('chatbots')
       .insert({
@@ -41,8 +44,9 @@ export async function POST(request: NextRequest) {
     if (error) throw error;
     return NextResponse.json({ chatbot });
   } catch (err) {
-    console.error('Create chatbot error:', err);
-    return NextResponse.json({ error: 'Error creando el chatbot' }, { status: 500 });
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`Create chatbot error [${step}]:`, msg);
+    return NextResponse.json({ error: `Error en ${step}: ${msg}` }, { status: 500 });
   }
 }
 

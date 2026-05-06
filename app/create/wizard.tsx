@@ -92,11 +92,11 @@ export function CreateWizard({
         setCreatedChatbot(data.chatbot);
         setStep("done");
       } else {
-        setError(data.error ?? "Error al crear el chatbot.");
+        setError(data.error ?? "Error desconocido al crear el chatbot.");
         setStep("repo");
       }
-    } catch {
-      setError("Error de conexión.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Error de conexión.");
       setStep("repo");
     }
   }
