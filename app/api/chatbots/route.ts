@@ -25,11 +25,18 @@ export async function POST(request: NextRequest) {
 
     step = 'github';
     let widgetInjected = false;
+    let injectReason: string | undefined;
+    let injectFile: string | undefined;
     const targetRepo = githubRepo ?? vercelGithubRepo;
 
     if (targetRepo && user.github_access_token) {
       const [owner, repo] = targetRepo.split('/');
-      widgetInjected = await injectWidget(user.github_access_token, owner, repo, webhookUrl, name, appUrl);
+      const result = await injectWidget(user.github_access_token, owner, repo, webhookUrl, name, appUrl);
+      widgetInjected = result.injected;
+      injectReason = result.reason;
+      injectFile = result.file;
+    } else if (!user.github_access_token) {
+      injectReason = 'no GitHub token on account';
     }
 
     step = 'supabase';
@@ -49,7 +56,7 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (error) throw error;
-    return NextResponse.json({ chatbot });
+    return NextResponse.json({ chatbot, injectFile, injectReason });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`Create chatbot error [${step}]:`, msg);

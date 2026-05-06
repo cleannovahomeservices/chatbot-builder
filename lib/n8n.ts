@@ -55,6 +55,14 @@ export async function deleteWorkflow(workflowId: string): Promise<void> {
   });
 }
 
+export async function setWorkflowActive(workflowId: string, active: boolean): Promise<void> {
+  const action = active ? 'activate' : 'deactivate';
+  await fetch(`${N8N_BASE}/api/v1/workflows/${workflowId}/${action}`, {
+    method: 'POST',
+    headers: n8nHeaders,
+  });
+}
+
 function buildWorkflow(name: string, systemPrompt: string) {
   return {
     name,

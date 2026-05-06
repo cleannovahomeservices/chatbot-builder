@@ -48,6 +48,12 @@ export async function listUserRepos(token: string) {
   return res.json();
 }
 
+export interface InjectResult {
+  injected: boolean;
+  file?: string;
+  reason?: string;
+}
+
 export async function injectWidget(
   token: string,
   owner: string,
@@ -55,51 +61,60 @@ export async function injectWidget(
   webhookUrl: string,
   chatbotName: string,
   appUrl: string
-): Promise<boolean> {
+): Promise<InjectResult> {
   const headers = makeHeaders(token);
 
-  // Get the full repo file tree to know what actually exists
   const treeRes = await fetch(
     `${GITHUB_API}/repos/${owner}/${repo}/git/trees/HEAD?recursive=1`,
     { headers }
   );
 
-  let files: string[] = [];
-  if (treeRes.ok) {
-    const data = await treeRes.json();
-    files = ((data.tree ?? []) as { type: string; path: string }[])
-      .filter((f) => f.type === 'blob')
-      .map((f) => f.path)
-      .filter((p) => !p.includes('node_modules/') && !p.includes('.next/') && !p.includes('dist/') && !p.includes('build/') && !p.includes('.git/'));
+  if (!treeRes.ok) {
+    const reason = `tree API ${treeRes.status} (repo may be empty or token lacks access)`;
+    console.error(`[inject] ${owner}/${repo}: ${reason}`);
+    await createStandaloneWidgetFile(token, owner, repo, webhookUrl, chatbotName, appUrl);
+    return { injected: false, reason };
   }
 
-  // Priority 1: Next.js App Router root layout
+  const data = await treeRes.json();
+  const files: string[] = ((data.tree ?? []) as { type: string; path: string }[])
+    .filter((f) => f.type === 'blob')
+    .map((f) => f.path)
+    .filter((p) => !p.includes('node_modules/') && !p.includes('.next/') && !p.includes('.git/'));
+
+  console.log(`[inject] ${owner}/${repo}: ${files.length} files, truncated=${data.truncated}`);
+
   const layout = files.find((f) => /^(src\/)?app\/layout\.[jt]sx?$/.test(f));
   if (layout) {
     const ok = await tryInjectIntoNextLayout(token, owner, repo, layout, webhookUrl, chatbotName, appUrl);
-    if (ok) return true;
+    if (ok) return { injected: true, file: layout };
+    console.error(`[inject] layout found (${layout}) but PUT failed`);
   }
 
-  // Priority 2: Next.js Pages Router _document
   const document = files.find((f) => /^(src\/)?pages\/_document\.[jt]sx?$/.test(f));
   if (document) {
     const ok = await tryInjectIntoNextDocument(token, owner, repo, document, webhookUrl, chatbotName, appUrl);
-    if (ok) return true;
+    if (ok) return { injected: true, file: document };
+    console.error(`[inject] _document found (${document}) but PUT failed`);
   }
 
-  // Priority 3: Any HTML file — sort by depth (shallower first) so root entry points win
   const htmlFiles = files
     .filter((f) => (f.endsWith('.html') || f.endsWith('.htm')) && !f.includes('/vendor/'))
     .sort((a, b) => a.split('/').length - b.split('/').length || a.length - b.length);
 
+  console.log(`[inject] HTML candidates: ${htmlFiles.slice(0, 5).join(', ') || 'none'}`);
+
   for (const path of htmlFiles) {
     const ok = await tryInjectIntoHtmlFile(token, owner, repo, path, webhookUrl, chatbotName, appUrl);
-    if (ok) return true;
+    if (ok) return { injected: true, file: path };
   }
 
-  // Fallback: create a standalone widget file in the repo root
+  const reason = (layout || document || htmlFiles.length > 0)
+    ? 'candidates found but all PUTs failed (check token write permissions)'
+    : 'no HTML, layout or _document files found in repo';
+  console.error(`[inject] ${owner}/${repo}: ${reason}`);
   await createStandaloneWidgetFile(token, owner, repo, webhookUrl, chatbotName, appUrl);
-  return false;
+  return { injected: false, reason };
 }
 
 function makeHeaders(token: string) {

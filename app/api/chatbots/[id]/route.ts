@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { deleteWorkflow, setWorkflowActive } from '@/lib/n8n';
 
 export async function DELETE(
   _request: NextRequest,
@@ -11,6 +12,17 @@ export async function DELETE(
 
   const { id } = await params;
   const db = createAdminClient();
+
+  const { data: chatbot } = await db
+    .from('chatbots')
+    .select('n8n_workflow_id')
+    .eq('id', id)
+    .eq('user_id', user.id)
+    .single();
+
+  if (chatbot?.n8n_workflow_id) {
+    try { await deleteWorkflow(chatbot.n8n_workflow_id); } catch {}
+  }
 
   const { error } = await db
     .from('chatbots')
@@ -37,6 +49,18 @@ export async function PATCH(
   }
 
   const db = createAdminClient();
+
+  const { data: chatbot } = await db
+    .from('chatbots')
+    .select('n8n_workflow_id')
+    .eq('id', id)
+    .eq('user_id', user.id)
+    .single();
+
+  if (chatbot?.n8n_workflow_id) {
+    try { await setWorkflowActive(chatbot.n8n_workflow_id, status === 'active'); } catch {}
+  }
+
   const { data, error } = await db
     .from('chatbots')
     .update({ status })
