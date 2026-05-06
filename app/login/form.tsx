@@ -1,6 +1,7 @@
 "use client";
 
-import { AuthForm } from "@/components/ui/sign-in-1";
+import { useState } from "react";
+import Image from "next/image";
 
 const IconGithub = (props: React.SVGProps<SVGSVGElement>) => (
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" {...props}>
@@ -26,47 +27,154 @@ interface LoginFormProps {
 }
 
 export function LoginForm({ mode, input }: LoginFormProps) {
-  function loginWith(provider: 'github' | 'google') {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [emailAction, setEmailAction] = useState<"signin" | "signup">("signin");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const isCreating = !!(mode && input);
+
+  function loginWith(provider: "github" | "google") {
     const params = new URLSearchParams();
     if (mode) params.set("mode", mode);
     if (input) params.set("input", input);
     window.location.href = `/api/auth/${provider}?${params}`;
   }
 
-  const isCreating = !!(mode && input);
+  async function handleEmailAuth() {
+    if (!email || !password) return;
+    setLoading(true);
+    setError("");
+    try {
+      const res = await fetch("/api/auth/email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: emailAction, email, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error ?? "Error");
+        return;
+      }
+      const redirectUrl =
+        mode && input
+          ? `/create?mode=${mode}&input=${encodeURIComponent(input)}`
+          : "/dashboard";
+      window.location.href = redirectUrl;
+    } catch {
+      setError("Error de conexión");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   return (
     <main className="min-h-screen bg-[#0A0A0A] flex items-center justify-center px-4">
-      <AuthForm
-        logoSrc="/logo.png"
-        logoAlt="Chatbot Builder"
-        title={isCreating ? "Conecta tu cuenta" : "Iniciar sesión"}
-        description={
-          isCreating
-            ? "Conecta GitHub para crear e inyectar tu chatbot automáticamente."
-            : "Accede para gestionar tus chatbots."
-        }
-        primaryAction={{
-          label: "Continuar con GitHub",
-          icon: <IconGithub className="mr-2 h-4 w-4" />,
-          onClick: () => loginWith('github'),
-        }}
-        secondaryActions={[
-          {
-            label: "Continuar con Google",
-            icon: <IconGoogle className="mr-2 h-4 w-4" />,
-            onClick: () => loginWith('google'),
-          },
-        ]}
-        footerContent={
-          <span>
-            Al continuar aceptas nuestros{" "}
-            <u className="cursor-pointer hover:text-white transition-colors">Términos de Servicio</u>
-            {" "}y{" "}
-            <u className="cursor-pointer hover:text-white transition-colors">Política de Privacidad</u>.
-          </span>
-        }
-      />
+      <div className="w-full max-w-sm rounded-2xl border border-white/10 bg-white/[0.03] p-8">
+        <div className="flex justify-center mb-6">
+          <Image
+            src="/logo.png"
+            alt="Chatbot Builder"
+            width={48}
+            height={48}
+            className="rounded-xl object-contain"
+          />
+        </div>
+        <h1 className="text-center text-2xl font-semibold text-white mb-1">
+          {isCreating ? "Conecta tu cuenta" : "Iniciar sesión"}
+        </h1>
+        <p className="text-center text-sm text-white/40 mb-8">
+          {isCreating
+            ? "Conecta para crear tu chatbot automáticamente."
+            : "Accede para gestionar tus chatbots."}
+        </p>
+
+        <div className="space-y-3 mb-6">
+          <button
+            onClick={() => loginWith("github")}
+            className="flex w-full items-center justify-center gap-2.5 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-medium text-white hover:bg-white/10 transition cursor-pointer"
+          >
+            <IconGithub className="h-4 w-4" />
+            Continuar con GitHub
+          </button>
+          <button
+            onClick={() => loginWith("google")}
+            className="flex w-full items-center justify-center gap-2.5 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-medium text-white hover:bg-white/10 transition cursor-pointer"
+          >
+            <IconGoogle className="h-4 w-4" />
+            Continuar con Google
+          </button>
+        </div>
+
+        <div className="relative mb-6">
+          <div className="absolute inset-0 flex items-center">
+            <span className="w-full border-t border-white/10" />
+          </div>
+          <div className="relative flex justify-center text-xs uppercase">
+            <span className="bg-[#0A0A0A] px-2 text-white/25">o</span>
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="tu@email.com"
+            className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white placeholder-white/25 outline-none transition focus:border-violet-500/60 focus:ring-1 focus:ring-violet-500/20"
+          />
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="Contraseña"
+            onKeyDown={(e) => e.key === "Enter" && handleEmailAuth()}
+            className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white placeholder-white/25 outline-none transition focus:border-violet-500/60 focus:ring-1 focus:ring-violet-500/20"
+          />
+          {error && <p className="text-xs text-red-400">{error}</p>}
+          <button
+            onClick={handleEmailAuth}
+            disabled={loading || !email || !password}
+            className="w-full rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 py-3 text-sm font-semibold text-white hover:from-violet-500 hover:to-indigo-500 transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+          >
+            {loading
+              ? "Cargando..."
+              : emailAction === "signin"
+              ? "Iniciar sesión"
+              : "Crear cuenta"}
+          </button>
+          <p className="text-center text-xs text-white/25">
+            {emailAction === "signin" ? (
+              <>
+                ¿No tienes cuenta?{" "}
+                <button
+                  onClick={() => setEmailAction("signup")}
+                  className="text-violet-400 hover:text-violet-300 cursor-pointer"
+                >
+                  Crear cuenta
+                </button>
+              </>
+            ) : (
+              <>
+                ¿Ya tienes cuenta?{" "}
+                <button
+                  onClick={() => setEmailAction("signin")}
+                  className="text-violet-400 hover:text-violet-300 cursor-pointer"
+                >
+                  Iniciar sesión
+                </button>
+              </>
+            )}
+          </p>
+        </div>
+
+        <p className="mt-6 text-center text-xs text-white/20">
+          Al continuar aceptas nuestros{" "}
+          <u className="cursor-pointer hover:text-white/40 transition">Términos</u> y{" "}
+          <u className="cursor-pointer hover:text-white/40 transition">Privacidad</u>.
+        </p>
+      </div>
     </main>
   );
 }

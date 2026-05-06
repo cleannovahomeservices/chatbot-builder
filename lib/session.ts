@@ -16,6 +16,8 @@ export interface SessionUser {
   google_name: string | null;
   google_email: string | null;
   google_avatar_url: string | null;
+  email_address: string | null;
+  email_user_id: string | null;
 }
 
 export async function createSession(user: SessionUser): Promise<string> {

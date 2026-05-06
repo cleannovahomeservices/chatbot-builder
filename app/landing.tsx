@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import Image from "next/image";
-import { AuthForm } from "@/components/ui/sign-in-1";
 
 const IconGithub = (props: React.SVGProps<SVGSVGElement>) => (
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" {...props}>
@@ -27,10 +26,16 @@ export function LandingPage({ isLoggedIn, username }: Props) {
   const [url, setUrl] = useState("");
   const [showModal, setShowModal] = useState(false);
   const [pendingParams, setPendingParams] = useState<{ mode: string; input: string } | null>(null);
+  const [emailAddress, setEmailAddress] = useState("");
+  const [emailPassword, setEmailPassword] = useState("");
+  const [emailAction, setEmailAction] = useState<"signin" | "signup">("signin");
+  const [emailLoading, setEmailLoading] = useState(false);
+  const [emailError, setEmailError] = useState("");
 
   function openLogin(params?: { mode: string; input: string }) {
     setPendingParams(params ?? null);
     setShowModal(true);
+    setEmailError("");
   }
 
   function loginWith(provider: "github" | "google") {
@@ -40,6 +45,29 @@ export function LandingPage({ isLoggedIn, username }: Props) {
       params.set("input", pendingParams.input);
     }
     window.location.href = `/api/auth/${provider}?${params}`;
+  }
+
+  async function handleEmailAuth() {
+    if (!emailAddress || !emailPassword) return;
+    setEmailLoading(true);
+    setEmailError("");
+    try {
+      const res = await fetch("/api/auth/email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: emailAction, email: emailAddress, password: emailPassword }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setEmailError(data.error ?? "Error"); return; }
+      const redirectUrl = pendingParams
+        ? `/create?mode=${pendingParams.mode}&input=${encodeURIComponent(pendingParams.input)}`
+        : "/dashboard";
+      window.location.href = redirectUrl;
+    } catch {
+      setEmailError("Error de conexión");
+    } finally {
+      setEmailLoading(false);
+    }
   }
 
   function handleCTA() {
@@ -169,42 +197,92 @@ export function LandingPage({ isLoggedIn, username }: Props) {
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4"
           onClick={(e) => { if (e.target === e.currentTarget) setShowModal(false); }}
         >
-          <div className="relative w-full max-w-sm">
+          <div className="relative w-full max-w-sm rounded-2xl border border-white/10 bg-[#0f0f0f] p-8">
             <button
               onClick={() => setShowModal(false)}
               className="absolute -top-3 -right-3 z-10 h-7 w-7 rounded-full bg-white/10 border border-white/10 text-white/50 hover:text-white flex items-center justify-center text-sm transition cursor-pointer"
             >
               ✕
             </button>
-            <AuthForm
-              logoSrc="/logo.png"
-              logoAlt="Chatbot Builder"
-              title={pendingParams ? "Conecta tu cuenta" : "Iniciar sesión"}
-              description={
-                pendingParams
-                  ? "Conecta tu cuenta para crear e inyectar tu chatbot."
-                  : "Accede para gestionar tus chatbots."
-              }
-              primaryAction={{
-                label: "Continuar con GitHub",
-                icon: <IconGithub className="mr-2 h-4 w-4" />,
-                onClick: () => loginWith("github"),
-              }}
-              secondaryActions={[
-                {
-                  label: "Continuar con Google",
-                  icon: <IconGoogle className="mr-2 h-4 w-4" />,
-                  onClick: () => loginWith("google"),
-                },
-              ]}
-              footerContent={
-                <span>
-                  Al continuar aceptas nuestros{" "}
-                  <u className="cursor-pointer hover:text-white transition-colors">Términos</u> y{" "}
-                  <u className="cursor-pointer hover:text-white transition-colors">Privacidad</u>.
-                </span>
-              }
-            />
+
+            <div className="flex justify-center mb-5">
+              <Image src="/logo.png" alt="Chatbot Builder" width={44} height={44} className="rounded-xl object-contain" />
+            </div>
+            <h2 className="text-center text-xl font-semibold text-white mb-1">
+              {pendingParams ? "Conecta tu cuenta" : "Iniciar sesión"}
+            </h2>
+            <p className="text-center text-sm text-white/40 mb-7">
+              {pendingParams ? "Conecta para crear tu chatbot." : "Accede para gestionar tus chatbots."}
+            </p>
+
+            <div className="space-y-2.5 mb-5">
+              <button
+                onClick={() => loginWith("github")}
+                className="flex w-full items-center justify-center gap-2.5 rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-medium text-white hover:bg-white/10 transition cursor-pointer"
+              >
+                <IconGithub className="h-4 w-4" />
+                Continuar con GitHub
+              </button>
+              <button
+                onClick={() => loginWith("google")}
+                className="flex w-full items-center justify-center gap-2.5 rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-medium text-white hover:bg-white/10 transition cursor-pointer"
+              >
+                <IconGoogle className="h-4 w-4" />
+                Continuar con Google
+              </button>
+            </div>
+
+            <div className="relative mb-5">
+              <div className="absolute inset-0 flex items-center">
+                <span className="w-full border-t border-white/10" />
+              </div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-[#0f0f0f] px-2 text-white/25">o</span>
+              </div>
+            </div>
+
+            <div className="space-y-2.5">
+              <input
+                type="email"
+                value={emailAddress}
+                onChange={(e) => setEmailAddress(e.target.value)}
+                placeholder="tu@email.com"
+                className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white placeholder-white/25 outline-none transition focus:border-violet-500/60 focus:ring-1 focus:ring-violet-500/20"
+              />
+              <input
+                type="password"
+                value={emailPassword}
+                onChange={(e) => setEmailPassword(e.target.value)}
+                placeholder="Contraseña"
+                onKeyDown={(e) => e.key === "Enter" && handleEmailAuth()}
+                className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white placeholder-white/25 outline-none transition focus:border-violet-500/60 focus:ring-1 focus:ring-violet-500/20"
+              />
+              {emailError && <p className="text-xs text-red-400">{emailError}</p>}
+              <button
+                onClick={handleEmailAuth}
+                disabled={emailLoading || !emailAddress || !emailPassword}
+                className="w-full rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 py-2.5 text-sm font-semibold text-white hover:from-violet-500 hover:to-indigo-500 transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+              >
+                {emailLoading ? "Cargando..." : emailAction === "signin" ? "Iniciar sesión" : "Crear cuenta"}
+              </button>
+              <p className="text-center text-xs text-white/25">
+                {emailAction === "signin" ? (
+                  <>¿No tienes cuenta?{" "}
+                    <button onClick={() => setEmailAction("signup")} className="text-violet-400 hover:text-violet-300 cursor-pointer">Crear cuenta</button>
+                  </>
+                ) : (
+                  <>¿Ya tienes cuenta?{" "}
+                    <button onClick={() => setEmailAction("signin")} className="text-violet-400 hover:text-violet-300 cursor-pointer">Iniciar sesión</button>
+                  </>
+                )}
+              </p>
+            </div>
+
+            <p className="mt-5 text-center text-xs text-white/20">
+              Al continuar aceptas nuestros{" "}
+              <u className="cursor-pointer hover:text-white/40 transition">Términos</u> y{" "}
+              <u className="cursor-pointer hover:text-white/40 transition">Privacidad</u>.
+            </p>
           </div>
         </div>
       )}

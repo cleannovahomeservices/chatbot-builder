@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import crypto from 'crypto';
+import { createServerClient } from '@supabase/ssr';
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -7,41 +7,44 @@ export async function GET(request: NextRequest) {
   const input = searchParams.get('input');
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
 
-  const state = crypto.randomBytes(16).toString('hex');
+  const cookieJar: { name: string; value: string; options: Record<string, unknown> }[] = [];
 
-  const params = new URLSearchParams({
-    client_id: process.env.GOOGLE_CLIENT_ID!,
-    redirect_uri: `${appUrl}/api/auth/google/callback`,
-    response_type: 'code',
-    scope: 'openid email profile',
-    state,
-    access_type: 'online',
-    prompt: 'select_account',
-  });
-
-  const response = NextResponse.redirect(
-    `https://accounts.google.com/o/oauth2/v2/auth?${params}`
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll: () => request.cookies.getAll(),
+        setAll: (cookiesToSet) => {
+          cookiesToSet.forEach((c) => cookieJar.push(c));
+        },
+      },
+    }
   );
 
-  response.cookies.set('google_oauth_state', state, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    maxAge: 600,
-    path: '/',
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider: 'google',
+    options: {
+      redirectTo: `${appUrl}/api/auth/supabase/callback`,
+      skipBrowserRedirect: true,
+    },
   });
 
-  if (mode && input) {
-    response.cookies.set('create_params', JSON.stringify({ mode, input }), {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 600,
-      path: '/',
-    });
+  if (error || !data.url) {
+    return NextResponse.redirect(`${appUrl}/?error=auth_failed`);
   }
 
-  const redirectTarget = mode && input ? `${appUrl}/create` : `${appUrl}/dashboard`;
+  const response = NextResponse.redirect(data.url);
+
+  cookieJar.forEach(({ name, value, options }) => {
+    response.cookies.set(name, value, options as Parameters<typeof response.cookies.set>[2]);
+  });
+
+  const redirectTarget =
+    mode && input
+      ? `${appUrl}/create?mode=${mode}&input=${encodeURIComponent(input)}`
+      : `${appUrl}/dashboard`;
+
   response.cookies.set('post_auth_redirect', redirectTarget, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',

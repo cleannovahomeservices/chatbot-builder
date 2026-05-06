@@ -30,11 +30,13 @@ export default async function DashboardPage() {
       <nav className="border-b border-white/10 px-6 py-4 flex items-center justify-between">
         <span className="font-bold text-lg">Chatbot Builder</span>
         <div className="flex items-center gap-4">
-          <img
-            src={user.github_avatar_url ?? user.google_avatar_url ?? undefined}
-            alt={user.github_username ?? user.google_name ?? undefined}
-            className="h-8 w-8 rounded-full border border-white/20"
-          />
+          {(user.github_avatar_url ?? user.google_avatar_url) && (
+            <img
+              src={user.github_avatar_url ?? user.google_avatar_url ?? undefined}
+              alt={user.github_username ?? user.google_name ?? undefined}
+              className="h-8 w-8 rounded-full border border-white/20"
+            />
+          )}
           <form action="/api/auth/logout" method="POST">
             <button className="text-sm text-white/50 hover:text-white transition cursor-pointer">
               Cerrar sesión
@@ -47,7 +49,9 @@ export default async function DashboardPage() {
         <div className="flex items-center justify-between mb-8">
           <div>
             <h1 className="text-3xl font-bold">Mis chatbots</h1>
-            <p className="text-white/50 mt-1">Hola, {user.github_username ?? user.google_name}</p>
+            <p className="text-white/50 mt-1">
+              Hola, {user.github_username ?? user.google_name ?? user.email_address?.split("@")[0]}
+            </p>
           </div>
           <Link
             href="/"
