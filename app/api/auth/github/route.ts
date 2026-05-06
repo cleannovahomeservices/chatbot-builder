@@ -7,16 +7,20 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const mode = searchParams.get('mode');
   const input = searchParams.get('input');
-  const link = searchParams.get('link') === 'true';
+  const rawNext = searchParams.get('next') ?? '';
+  const next = rawNext.startsWith('/') ? rawNext : '';
   const appUrl = new URL(request.url).origin;
 
-  // If already logged in and NOT linking, skip OAuth
-  if (!link) {
-    const existingUser = await getSession();
-    if (existingUser) {
-      const response = NextResponse.redirect(
-        mode && input ? `${appUrl}/create` : `${appUrl}/dashboard`
-      );
+  const existingUser = await getSession();
+  if (existingUser) {
+    if (existingUser.github_access_token) {
+      // Already has GitHub — skip OAuth and go directly to destination
+      const dest = next
+        ? `${appUrl}${next}`
+        : mode && input
+        ? `${appUrl}/create`
+        : `${appUrl}/dashboard`;
+      const response = NextResponse.redirect(dest);
       if (mode && input) {
         response.cookies.set('create_params', JSON.stringify({ mode, input }), {
           httpOnly: true,
@@ -28,6 +32,7 @@ export async function GET(request: NextRequest) {
       }
       return response;
     }
+    // Has session but no GitHub token — proceed with OAuth to link
   }
 
   const state = crypto.randomBytes(16).toString('hex');
@@ -42,16 +47,6 @@ export async function GET(request: NextRequest) {
     path: '/',
   });
 
-  if (link) {
-    response.cookies.set('github_linking', 'true', {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 600,
-      path: '/',
-    });
-  }
-
   if (mode && input) {
     response.cookies.set('create_params', JSON.stringify({ mode, input }), {
       httpOnly: true,
@@ -62,8 +57,8 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  const redirectTarget = link
-    ? `${appUrl}/create`
+  const redirectTarget = next
+    ? `${appUrl}${next}`
     : mode && input
     ? `${appUrl}/create`
     : `${appUrl}/dashboard`;

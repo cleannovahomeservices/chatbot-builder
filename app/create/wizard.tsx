@@ -354,7 +354,7 @@ export function CreateWizard({
                         sessionStorage.setItem('wizard_resume', JSON.stringify({
                           prompt, userInput, inputMode, chatbotName,
                         }));
-                        window.location.href = '/api/auth/github?link=true';
+                        window.location.href = '/api/auth/github?next=/create';
                       }}
                       className="rounded-xl bg-white px-6 py-2.5 text-sm font-semibold text-black hover:bg-white/90 transition cursor-pointer"
                     >

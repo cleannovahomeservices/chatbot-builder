@@ -19,14 +19,12 @@ export async function GET(request: NextRequest) {
     const githubUser = await getGitHubUser(accessToken);
     const db = createAdminClient();
 
-    const isLinking = request.cookies.get('github_linking')?.value === 'true';
+    // If user already has a valid session without a GitHub token, link GitHub to that account
     const existingSessionToken = request.cookies.get(SESSION_COOKIE_NAME)?.value;
-
-    // If linking GitHub to an existing Google/email account
-    if (isLinking && existingSessionToken) {
+    if (existingSessionToken) {
       const existingUser = await getSession(existingSessionToken);
-      if (existingUser) {
-        await db
+      if (existingUser && !existingUser.github_access_token) {
+        const { error: updateError } = await db
           .from('users')
           .update({
             github_id: githubUser.id,
@@ -38,12 +36,15 @@ export async function GET(request: NextRequest) {
           })
           .eq('id', existingUser.id);
 
-        const redirectTo = request.cookies.get('post_auth_redirect')?.value || `${appUrl}/create`;
-        const response = NextResponse.redirect(redirectTo);
-        response.cookies.delete('github_linking');
-        response.cookies.delete('github_oauth_state');
-        response.cookies.delete('post_auth_redirect');
-        return response;
+        if (!updateError) {
+          const redirectTo = request.cookies.get('post_auth_redirect')?.value || `${appUrl}/create`;
+          const response = NextResponse.redirect(redirectTo);
+          response.cookies.delete('github_oauth_state');
+          response.cookies.delete('post_auth_redirect');
+          response.cookies.delete('github_linking');
+          return response;
+        }
+        // If update failed (e.g. github_id already taken by another user), fall through to normal login
       }
     }
 
