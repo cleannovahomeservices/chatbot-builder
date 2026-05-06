@@ -48,6 +48,8 @@ export function CreateWizard({
     n8n_webhook_url: string;
     widget_injected: boolean;
   } | null>(null);
+  const [injectFile, setInjectFile] = useState<string | undefined>();
+  const [injectReason, setInjectReason] = useState<string | undefined>();
 
   async function startGenerating() {
     if (!userInput.trim()) return;
@@ -201,6 +203,8 @@ export function CreateWizard({
       const data = await res.json();
       if (data.chatbot) {
         setCreatedChatbot(data.chatbot);
+        setInjectFile(data.injectFile);
+        setInjectReason(data.injectReason);
         setStep("done");
       } else {
         setError(data.error ?? "Error desconocido al crear el chatbot.");
@@ -453,21 +457,29 @@ export function CreateWizard({
             <h2 className="text-2xl font-bold mb-2">¡Chatbot creado!</h2>
 
             {createdChatbot?.widget_injected ? (
-              <p className="text-white/50 mb-6">El widget ya está en tu {deployMethod === "vercel" ? "proyecto" : "repositorio"}. Tu chatbot está activo.</p>
+              <>
+                <p className="text-white/50 mb-4">
+                  Widget inyectado automáticamente en{" "}
+                  <code className="bg-white/10 px-1 rounded text-xs">{injectFile}</code>.
+                  Tu chatbot está activo.
+                </p>
+                <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4 text-left mb-6">
+                  <p className="text-xs text-white/40 mb-1">Webhook URL</p>
+                  <p className="text-sm font-mono text-violet-300 break-all">{createdChatbot.n8n_webhook_url}</p>
+                </div>
+              </>
             ) : (
               <>
                 <p className="text-white/50 mb-4">Tu chatbot está activo. Añade este snippet antes del <code className="bg-white/10 px-1 rounded">&lt;/body&gt;</code> de tu web:</p>
-                <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4 text-left mb-6">
-                  <pre className="text-xs text-violet-300 whitespace-pre-wrap break-all">{`<script>window.ChatbotConfig={webhookUrl:"${createdChatbot?.n8n_webhook_url}"};</script>\n<script src="${process.env.NEXT_PUBLIC_APP_URL ?? 'https://chatbot-builder-iota.vercel.app'}/widget.js" async defer></script>`}</pre>
+                <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4 text-left mb-4">
+                  <pre className="text-xs text-violet-300 whitespace-pre-wrap break-all">{`<script>window.ChatbotConfig={webhookUrl:"${createdChatbot?.n8n_webhook_url}"};</script>\n<script src="https://chatbot-builder-iota.vercel.app/widget.js" async defer></script>`}</pre>
                 </div>
+                {injectReason && (
+                  <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-left mb-4">
+                    <p className="text-xs text-amber-400/80">Inyección automática no completada: {injectReason}</p>
+                  </div>
+                )}
               </>
-            )}
-
-            {createdChatbot?.widget_injected && (
-              <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4 text-left mb-6">
-                <p className="text-xs text-white/40 mb-1">Webhook URL</p>
-                <p className="text-sm font-mono text-violet-300 break-all">{createdChatbot.n8n_webhook_url}</p>
-              </div>
             )}
 
             <button
