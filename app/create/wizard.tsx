@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 
-type Step = "generating" | "review" | "repo" | "creating" | "done";
+type Step = "input" | "generating" | "review" | "repo" | "creating" | "done";
 type DeployMethod = "github" | "vercel";
 
 interface Repo {
@@ -29,7 +29,9 @@ export function CreateWizard({
   initialVercel?: boolean;
 }) {
   const router = useRouter();
-  const [step, setStep] = useState<Step>("generating");
+  const [step, setStep] = useState<Step>(initialInput.trim() ? "generating" : "input");
+  const [userInput, setUserInput] = useState(initialInput);
+  const [inputMode, setInputMode] = useState<"describe" | "url">(initialMode === "url" ? "url" : "describe");
   const [prompt, setPrompt] = useState("");
   const [deployMethod, setDeployMethod] = useState<DeployMethod>(
     initialVercel ? "vercel" : "github"
@@ -46,8 +48,36 @@ export function CreateWizard({
     widget_injected: boolean;
   } | null>(null);
 
-  // Generate prompt on mount
+  async function startGenerating() {
+    if (!userInput.trim()) return;
+    setStep("generating");
+    try {
+      let input = userInput;
+      if (inputMode === "url" && userInput) {
+        const r = await fetch("/api/scrape", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: userInput }),
+        });
+        const d = await r.json();
+        if (d.text) input = d.text;
+      }
+      const r = await fetch("/api/generate-prompt", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ input }),
+      });
+      const d = await r.json();
+      if (d.prompt) { setPrompt(d.prompt); setStep("review"); }
+      else setStep("input");
+    } catch {
+      setStep("input");
+    }
+  }
+
+  // Generate prompt on mount only if initialInput was provided
   useEffect(() => {
+    if (!initialInput.trim()) return;
     async function generate() {
       try {
         let input = initialInput;
@@ -158,13 +188,53 @@ export function CreateWizard({
       <div className="w-full max-w-2xl">
         {/* Steps dots */}
         <div className="flex items-center gap-2 mb-10 justify-center">
-          {(["generating", "review", "repo", "creating", "done"] as Step[]).map((s, i) => (
+          {(["input", "generating", "review", "repo", "creating", "done"] as Step[]).map((s, i) => (
             <div key={s} className="flex items-center gap-2">
-              <div className={`h-2 w-2 rounded-full transition-all ${step === s ? "bg-violet-400 scale-125" : i < (["generating","review","repo","creating","done"] as Step[]).indexOf(step) ? "bg-violet-700" : "bg-white/20"}`} />
-              {i < 4 && <div className="h-px w-6 bg-white/10" />}
+              <div className={`h-2 w-2 rounded-full transition-all ${step === s ? "bg-violet-400 scale-125" : i < (["input","generating","review","repo","creating","done"] as Step[]).indexOf(step) ? "bg-violet-700" : "bg-white/20"}`} />
+              {i < 5 && <div className="h-px w-6 bg-white/10" />}
             </div>
           ))}
         </div>
+
+        {/* STEP: Input */}
+        {step === "input" && (
+          <div>
+            <h2 className="text-2xl font-bold mb-2">Crea tu chatbot</h2>
+            <p className="text-white/50 mb-6">Describe tu negocio o pega la URL de tu web.</p>
+            <div className="flex rounded-xl bg-white/5 p-1 mb-5">
+              <button onClick={() => setInputMode("describe")} className={`flex-1 rounded-lg py-2.5 text-sm font-medium transition-all cursor-pointer ${inputMode === "describe" ? "bg-white text-black shadow" : "text-white/50 hover:text-white"}`}>
+                Describe tu negocio
+              </button>
+              <button onClick={() => setInputMode("url")} className={`flex-1 rounded-lg py-2.5 text-sm font-medium transition-all cursor-pointer ${inputMode === "url" ? "bg-white text-black shadow" : "text-white/50 hover:text-white"}`}>
+                URL de tu web
+              </button>
+            </div>
+            {inputMode === "describe" ? (
+              <textarea
+                value={userInput}
+                onChange={(e) => setUserInput(e.target.value)}
+                rows={6}
+                placeholder="Ej: Somos una clínica dental en Madrid. Ofrecemos implantes, ortodoncia y blanqueamiento..."
+                className="w-full resize-none rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white placeholder-white/25 outline-none focus:border-violet-500/60 focus:ring-1 focus:ring-violet-500/30"
+              />
+            ) : (
+              <input
+                type="url"
+                value={userInput}
+                onChange={(e) => setUserInput(e.target.value)}
+                placeholder="https://tuempresa.com"
+                className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white placeholder-white/25 outline-none focus:border-violet-500/60"
+              />
+            )}
+            <button
+              onClick={startGenerating}
+              disabled={!userInput.trim()}
+              className="mt-6 w-full rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 py-4 font-semibold text-white hover:from-violet-500 hover:to-indigo-500 transition active:scale-[0.99] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+            >
+              Generar chatbot con IA →
+            </button>
+          </div>
+        )}
 
         {/* STEP: Generating */}
         {step === "generating" && (
