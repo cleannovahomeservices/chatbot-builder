@@ -76,9 +76,33 @@ export function CreateWizard({
     }
   }
 
+  // Restore wizard state after GitHub linking redirect
+  useEffect(() => {
+    const saved = sessionStorage.getItem('wizard_resume');
+    if (!saved) return;
+    try {
+      const s = JSON.parse(saved);
+      sessionStorage.removeItem('wizard_resume');
+      if (s.prompt) setPrompt(s.prompt);
+      if (s.userInput) setUserInput(s.userInput);
+      if (s.inputMode) setInputMode(s.inputMode);
+      if (s.chatbotName) setChatbotName(s.chatbotName);
+      // Go straight to repo step and reload repos
+      setStep('repo');
+      setError('');
+      fetch('/api/github/repos').then(async (r) => {
+        if (r.status === 400) { setGithubConnected(false); return; }
+        const d = await r.json();
+        setGithubConnected(true);
+        setRepos(d.repos ?? []);
+      }).catch(() => {});
+    } catch {}
+  }, []);
+
   // Generate prompt on mount only if initialInput was provided
   useEffect(() => {
     if (!initialInput.trim()) return;
+    if (sessionStorage.getItem('wizard_resume')) return; // skip if restoring
     async function generate() {
       try {
         let input = initialInput;
@@ -325,12 +349,17 @@ export function CreateWizard({
                       <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
                     </svg>
                     <p className="text-white/50 text-sm mb-4">Conecta tu cuenta de GitHub para ver tus repositorios</p>
-                    <a
-                      href="/api/auth/github?link=true"
-                      className="inline-block rounded-xl bg-white px-6 py-2.5 text-sm font-semibold text-black hover:bg-white/90 transition"
+                    <button
+                      onClick={() => {
+                        sessionStorage.setItem('wizard_resume', JSON.stringify({
+                          prompt, userInput, inputMode, chatbotName,
+                        }));
+                        window.location.href = '/api/auth/github?link=true';
+                      }}
+                      className="rounded-xl bg-white px-6 py-2.5 text-sm font-semibold text-black hover:bg-white/90 transition cursor-pointer"
                     >
                       Conectar GitHub →
-                    </a>
+                    </button>
                   </div>
                 ) : githubConnected === null ? (
                   <div className="rounded-xl border border-white/10 bg-white/[0.03] p-6 text-center text-white/40 text-sm">
