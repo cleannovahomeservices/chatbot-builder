@@ -6,7 +6,7 @@ export function middleware(request: NextRequest) {
   const session = request.cookies.get(SESSION_COOKIE_NAME)?.value;
 
   if (!session) {
-    const loginUrl = new URL('/api/auth/github', request.url);
+    const loginUrl = new URL('/login', request.url);
     return NextResponse.redirect(loginUrl);
   }
 

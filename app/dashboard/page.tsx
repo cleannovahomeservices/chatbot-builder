@@ -2,6 +2,7 @@ import { getSession } from '@/lib/session';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
+import { ChatbotCard } from './chatbot-card';
 
 interface Chatbot {
   id: string;
@@ -15,7 +16,7 @@ interface Chatbot {
 
 export default async function DashboardPage() {
   const user = await getSession();
-  if (!user) redirect('/api/auth/github');
+  if (!user) redirect('/login');
 
   const db = createAdminClient();
   const { data: chatbots } = await db
@@ -69,42 +70,7 @@ export default async function DashboardPage() {
         ) : (
           <div className="grid gap-4">
             {(chatbots as Chatbot[]).map((bot) => (
-              <div
-                key={bot.id}
-                className="rounded-2xl border border-white/10 bg-white/[0.03] p-6"
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-3 mb-2">
-                      <h2 className="font-semibold text-lg truncate">{bot.name}</h2>
-                      <span
-                        className={`text-xs px-2 py-0.5 rounded-full border ${
-                          bot.status === 'active'
-                            ? 'border-emerald-500/30 text-emerald-400 bg-emerald-500/10'
-                            : 'border-white/10 text-white/40'
-                        }`}
-                      >
-                        {bot.status === 'active' ? 'Activo' : bot.status}
-                      </span>
-                      {bot.widget_injected && (
-                        <span className="text-xs px-2 py-0.5 rounded-full border border-violet-500/30 text-violet-400 bg-violet-500/10">
-                          Widget inyectado
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-sm text-white/40 mb-3">{bot.github_repo}</p>
-                    <div className="flex items-center gap-2 bg-white/5 rounded-lg px-3 py-2">
-                      <span className="text-xs text-white/30 shrink-0">Webhook:</span>
-                      <span className="text-xs font-mono text-violet-300 truncate">
-                        {bot.n8n_webhook_url}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="text-xs text-white/25 shrink-0">
-                    {new Date(bot.created_at).toLocaleDateString('es-ES')}
-                  </div>
-                </div>
-              </div>
+              <ChatbotCard key={bot.id} chatbot={bot} />
             ))}
           </div>
         )}

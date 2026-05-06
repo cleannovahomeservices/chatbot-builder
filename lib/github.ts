@@ -55,12 +55,43 @@ export async function injectWidget(
   webhookUrl: string,
   chatbotName: string
 ): Promise<void> {
-  const candidates = ['index.html', 'public/index.html', 'src/index.html'];
-  for (const path of candidates) {
+  // 1. Try standard HTML files (static sites, CRA)
+  const htmlCandidates = ['index.html', 'public/index.html', 'src/index.html'];
+  for (const path of htmlCandidates) {
     const ok = await tryInjectIntoHtmlFile(token, owner, repo, path, webhookUrl, chatbotName);
     if (ok) return;
   }
+
+  // 2. Try Next.js App Router layout
+  const layoutCandidates = [
+    'app/layout.tsx', 'app/layout.jsx',
+    'src/app/layout.tsx', 'src/app/layout.jsx',
+  ];
+  for (const path of layoutCandidates) {
+    const ok = await tryInjectIntoNextLayout(token, owner, repo, path, webhookUrl, chatbotName);
+    if (ok) return;
+  }
+
+  // 3. Try Next.js Pages Router _document
+  const documentCandidates = [
+    'pages/_document.tsx', 'pages/_document.jsx',
+    'src/pages/_document.tsx', 'src/pages/_document.jsx',
+  ];
+  for (const path of documentCandidates) {
+    const ok = await tryInjectIntoNextDocument(token, owner, repo, path, webhookUrl, chatbotName);
+    if (ok) return;
+  }
+
+  // 4. Fallback: create standalone file
   await createStandaloneWidgetFile(token, owner, repo, webhookUrl, chatbotName);
+}
+
+function makeHeaders(token: string) {
+  return {
+    Authorization: `Bearer ${token}`,
+    Accept: 'application/vnd.github+json',
+    'Content-Type': 'application/json',
+  };
 }
 
 async function tryInjectIntoHtmlFile(
@@ -71,12 +102,7 @@ async function tryInjectIntoHtmlFile(
   webhookUrl: string,
   chatbotName: string
 ): Promise<boolean> {
-  const headers = {
-    Authorization: `Bearer ${token}`,
-    Accept: 'application/vnd.github+json',
-    'Content-Type': 'application/json',
-  };
-
+  const headers = makeHeaders(token);
   const res = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/contents/${filePath}`, { headers });
   if (!res.ok) return false;
 
@@ -85,7 +111,7 @@ async function tryInjectIntoHtmlFile(
   if (!content.includes('</body>')) return false;
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL;
-  const snippet = `\n  <!-- Chatbot Widget by Chatbot Builder -->\n  <script>window.ChatbotConfig={webhookUrl:"${webhookUrl}",name:"${chatbotName}"};</script>\n  <script src="${appUrl}/widget.js" async defer></script>`;
+  const snippet = `\n  <!-- Chatbot: ${chatbotName} -->\n  <script>window.ChatbotConfig={webhookUrl:"${webhookUrl}",name:"${chatbotName}"};</script>\n  <script src="${appUrl}/widget.js" async defer></script>`;
   const updated = content.replace('</body>', `${snippet}\n</body>`);
 
   await fetch(`${GITHUB_API}/repos/${owner}/${repo}/contents/${filePath}`, {
@@ -93,6 +119,87 @@ async function tryInjectIntoHtmlFile(
     headers,
     body: JSON.stringify({
       message: `Add ${chatbotName} chatbot widget`,
+      content: Buffer.from(updated).toString('base64'),
+      sha: file.sha,
+    }),
+  });
+  return true;
+}
+
+async function tryInjectIntoNextLayout(
+  token: string,
+  owner: string,
+  repo: string,
+  filePath: string,
+  webhookUrl: string,
+  chatbotName: string
+): Promise<boolean> {
+  const headers = makeHeaders(token);
+  const res = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/contents/${filePath}`, { headers });
+  if (!res.ok) return false;
+
+  const file = await res.json();
+  const content = Buffer.from(file.content, 'base64').toString('utf-8');
+
+  const marker = '{children}';
+  const idx = content.indexOf(marker);
+  if (idx === -1) return false;
+
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+  const safeUrl = webhookUrl.replace(/[`"\\]/g, '');
+  const safeName = chatbotName.replace(/[`"\\]/g, '');
+
+  const snippet = `\n      {/* Chatbot: ${safeName} */}\n      <script dangerouslySetInnerHTML={{__html:\`window.ChatbotConfig={webhookUrl:"${safeUrl}",name:"${safeName}"};\`}} />\n      <script src="${appUrl}/widget.js" async defer />\n      `;
+  const updated = content.slice(0, idx) + snippet + content.slice(idx);
+
+  await fetch(`${GITHUB_API}/repos/${owner}/${repo}/contents/${filePath}`, {
+    method: 'PUT',
+    headers,
+    body: JSON.stringify({
+      message: `Add ${safeName} chatbot widget`,
+      content: Buffer.from(updated).toString('base64'),
+      sha: file.sha,
+    }),
+  });
+  return true;
+}
+
+async function tryInjectIntoNextDocument(
+  token: string,
+  owner: string,
+  repo: string,
+  filePath: string,
+  webhookUrl: string,
+  chatbotName: string
+): Promise<boolean> {
+  const headers = makeHeaders(token);
+  const res = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/contents/${filePath}`, { headers });
+  if (!res.ok) return false;
+
+  const file = await res.json();
+  const content = Buffer.from(file.content, 'base64').toString('utf-8');
+
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+  const safeUrl = webhookUrl.replace(/[`"\\]/g, '');
+  const safeName = chatbotName.replace(/[`"\\]/g, '');
+
+  const snippet = `\n        {/* Chatbot: ${safeName} */}\n        <script dangerouslySetInnerHTML={{__html:\`window.ChatbotConfig={webhookUrl:"${safeUrl}",name:"${safeName}"};\`}} />\n        <script src="${appUrl}/widget.js" async defer />\n        `;
+
+  let updated: string;
+  if (content.includes('</Head>')) {
+    updated = content.replace('</Head>', `${snippet}\n      </Head>`);
+  } else if (content.includes('{children}')) {
+    const idx = content.indexOf('{children}');
+    updated = content.slice(0, idx) + snippet + content.slice(idx);
+  } else {
+    return false;
+  }
+
+  await fetch(`${GITHUB_API}/repos/${owner}/${repo}/contents/${filePath}`, {
+    method: 'PUT',
+    headers,
+    body: JSON.stringify({
+      message: `Add ${safeName} chatbot widget`,
       content: Buffer.from(updated).toString('base64'),
       sha: file.sha,
     }),
@@ -109,11 +216,7 @@ async function createStandaloneWidgetFile(
 ): Promise<void> {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL;
   const content = `// ${chatbotName} — Chatbot Widget\nwindow.ChatbotConfig={webhookUrl:"${webhookUrl}",name:"${chatbotName}"};\n(function(){var s=document.createElement('script');s.src='${appUrl}/widget.js';s.async=true;document.addEventListener('DOMContentLoaded',function(){document.body.appendChild(s);});})();`;
-  const headers = {
-    Authorization: `Bearer ${token}`,
-    Accept: 'application/vnd.github+json',
-    'Content-Type': 'application/json',
-  };
+  const headers = makeHeaders(token);
   await fetch(`${GITHUB_API}/repos/${owner}/${repo}/contents/chatbot-widget.js`, {
     method: 'PUT',
     headers,
