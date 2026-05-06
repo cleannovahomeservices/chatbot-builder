@@ -23,6 +23,9 @@
   var inp = win.querySelector('#cb-inp');
   var btn = win.querySelector('#cb-btn');
 
+  // Stable session ID for conversation memory (n8n memoryBufferWindow)
+  var sessionId = 'cb-' + Math.random().toString(36).slice(2, 10) + '-' + Date.now();
+
   bubble.addEventListener('click', function () { win.classList.toggle('open'); });
 
   async function send() {
@@ -42,14 +45,16 @@
     msgs.scrollTop = msgs.scrollHeight;
 
     try {
+      // n8n chatTrigger expects { chatInput, sessionId }
       var r = await fetch(webhookUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text, chatbotName: botName }),
+        body: JSON.stringify({ chatInput: text, sessionId: sessionId }),
       });
       var d = await r.json();
       t.className = 'cb-msg cb-bot';
-      t.textContent = d.message || d.response || d.text || d.output || 'Sin respuesta';
+      // n8n agent returns `output`; fallback for other node types
+      t.textContent = d.output || d.text || d.message || d.response || 'Sin respuesta';
     } catch (e) {
       t.className = 'cb-msg cb-bot';
       t.textContent = 'Error al conectar. Inténtalo de nuevo.';

@@ -13,9 +13,9 @@ export interface WorkflowResult {
 export async function createChatbotWorkflow(
   name: string,
   systemPrompt: string,
-  webhookPath: string
+  _webhookPath: string
 ): Promise<WorkflowResult> {
-  const template = buildWorkflow(name, systemPrompt, webhookPath);
+  const template = buildWorkflow(name, systemPrompt);
 
   const res = await fetch(`${N8N_BASE}/api/v1/workflows`, {
     method: 'POST',
@@ -30,6 +30,13 @@ export async function createChatbotWorkflow(
 
   const workflow = await res.json();
 
+  // n8n auto-assigns webhookId to the chatTrigger node — read it from the response
+  const chatTriggerNode = workflow.nodes?.find(
+    (n: { type: string; webhookId?: string }) =>
+      n.type === '@n8n/n8n-nodes-langchain.chatTrigger'
+  );
+  const webhookId: string = chatTriggerNode?.webhookId ?? workflow.id;
+
   await fetch(`${N8N_BASE}/api/v1/workflows/${workflow.id}/activate`, {
     method: 'POST',
     headers: n8nHeaders,
@@ -37,7 +44,7 @@ export async function createChatbotWorkflow(
 
   return {
     workflowId: String(workflow.id),
-    webhookUrl: `${N8N_BASE}/webhook/${webhookPath}`,
+    webhookUrl: `${N8N_BASE}/webhook/${webhookId}/chat`,
   };
 }
 
@@ -48,49 +55,79 @@ export async function deleteWorkflow(workflowId: string): Promise<void> {
   });
 }
 
-// ── TODO: replace buildWorkflow with your actual n8n template ─────────────
-// When you paste the JSON template, replace the `nodes`, `connections`,
-// and `settings` fields below. Use {{WEBHOOK_PATH}} and {{SYSTEM_PROMPT}}
-// as placeholders — they will be replaced at runtime.
-function buildWorkflow(name: string, systemPrompt: string, webhookPath: string) {
+function buildWorkflow(name: string, systemPrompt: string) {
   return {
     name,
     nodes: [
       {
+        // No id / versionId / webhookId — n8n generates unique values per workflow
         parameters: {
-          httpMethod: 'POST',
-          path: webhookPath,
-          responseMode: 'responseNode',
-          options: {},
+          public: true,
+          mode: 'webhook',
+          options: { allowedOrigins: '*' },
         },
-        id: 'node-webhook',
-        name: 'Webhook',
-        type: 'n8n-nodes-base.webhook',
-        typeVersion: 2,
-        position: [250, 300],
-        webhookId: webhookPath,
+        type: '@n8n/n8n-nodes-langchain.chatTrigger',
+        typeVersion: 1.3,
+        position: [-288, -128],
+        name: 'When chat message received',
       },
       {
         parameters: {
-          respondWith: 'json',
-          responseBody:
-            '={{ {"message": "Chatbot activo. Conecta tu template de n8n para activar la IA."} }}',
+          promptType: 'define',
+          text: '={{$json.chatInput}}',
+          options: {
+            systemMessage: systemPrompt,
+          },
+        },
+        type: '@n8n/n8n-nodes-langchain.agent',
+        typeVersion: 3,
+        position: [-32, -112],
+        name: 'AI Agent',
+      },
+      {
+        parameters: {
+          model: {
+            __rl: true,
+            value: 'gpt-4o-mini',
+            mode: 'list',
+            cachedResultName: 'gpt-4o-mini',
+          },
           options: {},
         },
-        id: 'node-respond',
-        name: 'Respond to Webhook',
-        type: 'n8n-nodes-base.respondToWebhook',
-        typeVersion: 1,
-        position: [500, 300],
+        type: '@n8n/n8n-nodes-langchain.lmChatOpenAi',
+        typeVersion: 1.2,
+        position: [-176, 160],
+        name: 'OpenAI Chat Model',
+        credentials: {
+          openAiApi: {
+            id: 'mZzvcE5FSqez5DHF',
+            name: 'OpenAi account',
+          },
+        },
+      },
+      {
+        parameters: {
+          sessionIdType: 'customKey',
+          sessionKey: '={{ $json.sessionId }}',
+        },
+        type: '@n8n/n8n-nodes-langchain.memoryBufferWindow',
+        typeVersion: 1.3,
+        position: [144, 176],
+        name: 'Simple Memory',
       },
     ],
     connections: {
-      Webhook: {
-        main: [[{ node: 'Respond to Webhook', type: 'main', index: 0 }]],
+      'When chat message received': {
+        main: [[{ node: 'AI Agent', type: 'main', index: 0 }]],
+      },
+      'OpenAI Chat Model': {
+        ai_languageModel: [[{ node: 'AI Agent', type: 'ai_languageModel', index: 0 }]],
+      },
+      'Simple Memory': {
+        ai_memory: [[{ node: 'AI Agent', type: 'ai_memory', index: 0 }]],
       },
     },
     settings: { executionOrder: 'v1' },
-    active: false,
-    meta: { systemPrompt },
+    tags: [],
   };
 }
