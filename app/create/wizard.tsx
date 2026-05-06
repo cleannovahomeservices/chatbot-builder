@@ -4,88 +4,136 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 
 type Step = "generating" | "review" | "repo" | "creating" | "done";
+type DeployMethod = "github" | "vercel";
 
 interface Repo {
   full_name: string;
   name: string;
   private: boolean;
-  html_url: string;
+}
+
+interface VercelProject {
+  id: string;
+  name: string;
+  framework: string | null;
+  link?: { type: string; repo: string; org: string };
 }
 
 export function CreateWizard({
   initialMode,
   initialInput,
+  initialVercel,
 }: {
   initialMode: string;
   initialInput: string;
+  initialVercel?: boolean;
 }) {
   const router = useRouter();
   const [step, setStep] = useState<Step>("generating");
   const [prompt, setPrompt] = useState("");
+  const [deployMethod, setDeployMethod] = useState<DeployMethod>(
+    initialVercel ? "vercel" : "github"
+  );
   const [repos, setRepos] = useState<Repo[]>([]);
+  const [vercelProjects, setVercelProjects] = useState<VercelProject[]>([]);
+  const [vercelConnected, setVercelConnected] = useState(false);
   const [selectedRepo, setSelectedRepo] = useState("");
+  const [selectedVercelProject, setSelectedVercelProject] = useState<VercelProject | null>(null);
   const [chatbotName, setChatbotName] = useState("");
   const [error, setError] = useState("");
-  const [createdChatbot, setCreatedChatbot] = useState<{ n8n_webhook_url: string } | null>(null);
+  const [createdChatbot, setCreatedChatbot] = useState<{
+    n8n_webhook_url: string;
+    widget_injected: boolean;
+  } | null>(null);
 
+  // Generate prompt on mount
   useEffect(() => {
     async function generate() {
       try {
         let input = initialInput;
-
         if (initialMode === "url" && initialInput) {
-          const scrapeRes = await fetch("/api/scrape", {
+          const r = await fetch("/api/scrape", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ url: initialInput }),
           });
-          const scrapeData = await scrapeRes.json();
-          if (scrapeData.text) input = scrapeData.text;
+          const d = await r.json();
+          if (d.text) input = d.text;
         }
-
-        const res = await fetch("/api/generate-prompt", {
+        const r = await fetch("/api/generate-prompt", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ input }),
         });
-        const data = await res.json();
-        if (data.prompt) {
-          setPrompt(data.prompt);
-          setStep("review");
-        } else {
-          setError("No se pudo generar el prompt. Inténtalo de nuevo.");
-        }
+        const d = await r.json();
+        if (d.prompt) { setPrompt(d.prompt); setStep("review"); }
+        else setError("No se pudo generar el prompt.");
       } catch {
-        setError("Error de conexión. Inténtalo de nuevo.");
+        setError("Error de conexión.");
       }
     }
-
     generate();
   }, []);
 
   async function loadRepos() {
     setStep("repo");
+    setError("");
     try {
-      const res = await fetch("/api/github/repos");
-      const data = await res.json();
-      setRepos(data.repos ?? []);
+      const r = await fetch("/api/github/repos");
+      const d = await r.json();
+      setRepos(d.repos ?? []);
     } catch {
       setError("No se pudieron cargar los repositorios.");
     }
   }
 
+  async function loadVercelProjects() {
+    setError("");
+    try {
+      const r = await fetch("/api/vercel/projects");
+      const d = await r.json();
+      if (d.error === "Vercel no conectado") {
+        setVercelConnected(false);
+      } else {
+        setVercelConnected(true);
+        setVercelProjects(d.projects ?? []);
+      }
+    } catch {
+      setVercelConnected(false);
+    }
+  }
+
+  function goToRepo() {
+    setStep("repo");
+    setError("");
+    if (deployMethod === "github") loadRepos();
+    else loadVercelProjects();
+  }
+
+  function switchMethod(m: DeployMethod) {
+    setDeployMethod(m);
+    setSelectedRepo("");
+    setSelectedVercelProject(null);
+    setError("");
+    if (m === "github") loadRepos();
+    else loadVercelProjects();
+  }
+
   async function createChatbot() {
-    if (!selectedRepo || !chatbotName.trim()) return;
+    const target =
+      deployMethod === "github" ? selectedRepo : selectedVercelProject?.id;
+    if (!target || !chatbotName.trim()) return;
     setStep("creating");
     try {
+      const body =
+        deployMethod === "github"
+          ? { name: chatbotName, systemPrompt: prompt, githubRepo: selectedRepo }
+          : { name: chatbotName, systemPrompt: prompt, vercelProjectId: selectedVercelProject!.id, vercelProjectName: selectedVercelProject!.name, vercelGithubRepo: selectedVercelProject?.link ? `${selectedVercelProject.link.org}/${selectedVercelProject.link.repo}` : null };
+
       const res = await fetch("/api/chatbots", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: chatbotName,
-          systemPrompt: prompt,
-          githubRepo: selectedRepo,
-        }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       if (data.chatbot) {
@@ -101,23 +149,18 @@ export function CreateWizard({
     }
   }
 
+  const canCreate =
+    chatbotName.trim() &&
+    (deployMethod === "github" ? !!selectedRepo : !!selectedVercelProject);
+
   return (
     <main className="min-h-screen bg-[#0A0A0A] text-white flex flex-col items-center justify-center px-4 py-16">
       <div className="w-full max-w-2xl">
-        {/* Steps indicator */}
+        {/* Steps dots */}
         <div className="flex items-center gap-2 mb-10 justify-center">
           {(["generating", "review", "repo", "creating", "done"] as Step[]).map((s, i) => (
             <div key={s} className="flex items-center gap-2">
-              <div
-                className={`h-2 w-2 rounded-full transition-all ${
-                  step === s
-                    ? "bg-violet-400 scale-125"
-                    : ["done", "creating", "repo", "review"].indexOf(s) <
-                      ["done", "creating", "repo", "review", "generating"].indexOf(step)
-                    ? "bg-violet-700"
-                    : "bg-white/20"
-                }`}
-              />
+              <div className={`h-2 w-2 rounded-full transition-all ${step === s ? "bg-violet-400 scale-125" : i < (["generating","review","repo","creating","done"] as Step[]).indexOf(step) ? "bg-violet-700" : "bg-white/20"}`} />
               {i < 4 && <div className="h-px w-6 bg-white/10" />}
             </div>
           ))}
@@ -138,9 +181,7 @@ export function CreateWizard({
         {step === "review" && (
           <div>
             <h2 className="text-2xl font-bold mb-2">Tu system prompt</h2>
-            <p className="text-white/50 mb-6">
-              Revisa y edita el prompt que usará tu chatbot.
-            </p>
+            <p className="text-white/50 mb-6">Revisa y edita el prompt que usará tu chatbot.</p>
             <textarea
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
@@ -148,26 +189,45 @@ export function CreateWizard({
               className="w-full resize-none rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none focus:border-violet-500/60 focus:ring-1 focus:ring-violet-500/30"
             />
             <button
-              onClick={loadRepos}
+              onClick={goToRepo}
               className="mt-6 w-full rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 py-4 font-semibold text-white hover:from-violet-500 hover:to-indigo-500 transition active:scale-[0.99] cursor-pointer"
             >
-              Continuar → Conectar repositorio
+              Continuar → Conectar tu web
             </button>
           </div>
         )}
 
-        {/* STEP: Select repo */}
+        {/* STEP: Select repo/project */}
         {step === "repo" && (
           <div>
-            <h2 className="text-2xl font-bold mb-2">Elige tu repositorio</h2>
-            <p className="text-white/50 mb-4">
-              Inyectaremos el widget automáticamente en tu repo.
-            </p>
+            <h2 className="text-2xl font-bold mb-2">¿Dónde está tu web?</h2>
+            <p className="text-white/50 mb-5">Inyectaremos el widget automáticamente.</p>
 
+            {/* Method tabs */}
+            <div className="flex rounded-xl bg-white/5 p-1 mb-5">
+              <button
+                onClick={() => switchMethod("github")}
+                className={`flex-1 flex items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-medium transition-all cursor-pointer ${deployMethod === "github" ? "bg-white text-black shadow" : "text-white/50 hover:text-white"}`}
+              >
+                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
+                </svg>
+                GitHub
+              </button>
+              <button
+                onClick={() => switchMethod("vercel")}
+                className={`flex-1 flex items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-medium transition-all cursor-pointer ${deployMethod === "vercel" ? "bg-white text-black shadow" : "text-white/50 hover:text-white"}`}
+              >
+                <svg className="h-4 w-4" viewBox="0 0 76 65" fill="currentColor">
+                  <path d="M37.5274 0L75.0548 65H0L37.5274 0Z" />
+                </svg>
+                Vercel
+              </button>
+            </div>
+
+            {/* Chatbot name (shared) */}
             <div className="mb-4">
-              <label className="block text-sm font-medium text-white/70 mb-2">
-                Nombre del chatbot
-              </label>
+              <label className="block text-sm font-medium text-white/70 mb-2">Nombre del chatbot</label>
               <input
                 type="text"
                 value={chatbotName}
@@ -177,38 +237,68 @@ export function CreateWizard({
               />
             </div>
 
-            <div className="max-h-64 overflow-y-auto rounded-xl border border-white/10 bg-white/[0.03]">
-              {repos.length === 0 ? (
-                <div className="p-6 text-center text-white/40 text-sm">
-                  Cargando repositorios…
-                </div>
-              ) : (
-                repos.map((r) => (
-                  <button
-                    key={r.full_name}
-                    onClick={() => setSelectedRepo(r.full_name)}
-                    className={`w-full flex items-center justify-between px-4 py-3 text-left text-sm transition border-b border-white/5 last:border-0 cursor-pointer ${
-                      selectedRepo === r.full_name
-                        ? "bg-violet-500/20 text-white"
-                        : "text-white/70 hover:bg-white/5"
-                    }`}
-                  >
-                    <span>{r.full_name}</span>
-                    {r.private && (
-                      <span className="text-xs text-white/30 border border-white/10 rounded px-1.5 py-0.5">
-                        privado
-                      </span>
+            {/* GitHub repos */}
+            {deployMethod === "github" && (
+              <div className="max-h-60 overflow-y-auto rounded-xl border border-white/10 bg-white/[0.03]">
+                {repos.length === 0 ? (
+                  <div className="p-6 text-center text-white/40 text-sm">Cargando repositorios…</div>
+                ) : (
+                  repos.map((r) => (
+                    <button
+                      key={r.full_name}
+                      onClick={() => setSelectedRepo(r.full_name)}
+                      className={`w-full flex items-center justify-between px-4 py-3 text-left text-sm transition border-b border-white/5 last:border-0 cursor-pointer ${selectedRepo === r.full_name ? "bg-violet-500/20 text-white" : "text-white/70 hover:bg-white/5"}`}
+                    >
+                      <span>{r.full_name}</span>
+                      {r.private && <span className="text-xs text-white/30 border border-white/10 rounded px-1.5 py-0.5">privado</span>}
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
+
+            {/* Vercel projects */}
+            {deployMethod === "vercel" && (
+              <>
+                {!vercelConnected ? (
+                  <div className="rounded-xl border border-white/10 bg-white/[0.03] p-8 text-center">
+                    <div className="text-4xl mb-3">▲</div>
+                    <p className="text-white/50 text-sm mb-4">Conecta tu cuenta de Vercel para ver tus proyectos</p>
+                    <button
+                      onClick={() => router.push("/connect-vercel")}
+                      className="rounded-xl bg-white px-6 py-2.5 text-sm font-semibold text-black hover:bg-white/90 transition cursor-pointer"
+                    >
+                      Conectar Vercel →
+                    </button>
+                  </div>
+                ) : (
+                  <div className="max-h-60 overflow-y-auto rounded-xl border border-white/10 bg-white/[0.03]">
+                    {vercelProjects.length === 0 ? (
+                      <div className="p-6 text-center text-white/40 text-sm">No se encontraron proyectos</div>
+                    ) : (
+                      vercelProjects.map((p) => (
+                        <button
+                          key={p.id}
+                          onClick={() => setSelectedVercelProject(p)}
+                          className={`w-full flex items-center justify-between px-4 py-3 text-left text-sm transition border-b border-white/5 last:border-0 cursor-pointer ${selectedVercelProject?.id === p.id ? "bg-violet-500/20 text-white" : "text-white/70 hover:bg-white/5"}`}
+                        >
+                          <span>{p.name}</span>
+                          <span className="text-xs text-white/30 border border-white/10 rounded px-1.5 py-0.5">
+                            {p.framework ?? "static"}
+                          </span>
+                        </button>
+                      ))
                     )}
-                  </button>
-                ))
-              )}
-            </div>
+                  </div>
+                )}
+              </>
+            )}
 
             {error && <p className="mt-3 text-sm text-red-400">{error}</p>}
 
             <button
               onClick={createChatbot}
-              disabled={!selectedRepo || !chatbotName.trim()}
+              disabled={!canCreate}
               className="mt-6 w-full rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 py-4 font-semibold text-white hover:from-violet-500 hover:to-indigo-500 transition active:scale-[0.99] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
             >
               Crear chatbot →
@@ -223,30 +313,34 @@ export function CreateWizard({
               <div className="h-6 w-6 rounded-full border-2 border-violet-400 border-t-transparent animate-spin" />
             </div>
             <h2 className="text-2xl font-bold mb-2">Creando tu chatbot</h2>
-            <p className="text-white/50">
-              Configurando el workflow en n8n e inyectando el widget…
-            </p>
+            <p className="text-white/50">Configurando n8n e inyectando el widget…</p>
           </div>
         )}
 
         {/* STEP: Done */}
         {step === "done" && (
           <div className="text-center">
-            <div className="inline-flex h-14 w-14 items-center justify-center rounded-full bg-emerald-500/20 mb-6 text-3xl">
-              ✓
-            </div>
+            <div className="inline-flex h-14 w-14 items-center justify-center rounded-full bg-emerald-500/20 mb-6 text-2xl">✓</div>
             <h2 className="text-2xl font-bold mb-2">¡Chatbot creado!</h2>
-            <p className="text-white/50 mb-6">
-              El widget ya está en tu repositorio. Tu chatbot está activo.
-            </p>
-            {createdChatbot && (
+
+            {createdChatbot?.widget_injected ? (
+              <p className="text-white/50 mb-6">El widget ya está en tu {deployMethod === "vercel" ? "proyecto" : "repositorio"}. Tu chatbot está activo.</p>
+            ) : (
+              <>
+                <p className="text-white/50 mb-4">Tu chatbot está activo. Añade este snippet antes del <code className="bg-white/10 px-1 rounded">&lt;/body&gt;</code> de tu web:</p>
+                <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4 text-left mb-6">
+                  <pre className="text-xs text-violet-300 whitespace-pre-wrap break-all">{`<script>window.ChatbotConfig={webhookUrl:"${createdChatbot?.n8n_webhook_url}"};</script>\n<script src="${process.env.NEXT_PUBLIC_APP_URL ?? 'https://chatbot-builder-iota.vercel.app'}/widget.js" async defer></script>`}</pre>
+                </div>
+              </>
+            )}
+
+            {createdChatbot?.widget_injected && (
               <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4 text-left mb-6">
                 <p className="text-xs text-white/40 mb-1">Webhook URL</p>
-                <p className="text-sm font-mono text-violet-300 break-all">
-                  {createdChatbot.n8n_webhook_url}
-                </p>
+                <p className="text-sm font-mono text-violet-300 break-all">{createdChatbot.n8n_webhook_url}</p>
               </div>
             )}
+
             <button
               onClick={() => router.push("/dashboard")}
               className="w-full rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 py-4 font-semibold text-white hover:from-violet-500 hover:to-indigo-500 transition cursor-pointer"

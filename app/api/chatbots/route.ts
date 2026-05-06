@@ -9,8 +9,9 @@ export async function POST(request: NextRequest) {
   const user = await getSession();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { name, systemPrompt, githubRepo } = await request.json();
-  if (!name || !systemPrompt || !githubRepo) {
+  const { name, systemPrompt, githubRepo, vercelProjectId, vercelProjectName, vercelGithubRepo } =
+    await request.json();
+  if (!name || !systemPrompt || (!githubRepo && !vercelProjectId)) {
     return NextResponse.json({ error: 'Faltan campos requeridos' }, { status: 400 });
   }
 
@@ -22,8 +23,14 @@ export async function POST(request: NextRequest) {
     const { workflowId, webhookUrl } = await createChatbotWorkflow(name, systemPrompt, webhookPath);
 
     step = 'github';
-    const [owner, repo] = githubRepo.split('/');
-    await injectWidget(user.github_access_token, owner, repo, webhookUrl, name);
+    let widgetInjected = false;
+    const targetRepo = githubRepo ?? vercelGithubRepo;
+
+    if (targetRepo) {
+      const [owner, repo] = targetRepo.split('/');
+      await injectWidget(user.github_access_token, owner, repo, webhookUrl, name);
+      widgetInjected = true;
+    }
 
     step = 'supabase';
     const { data: chatbot, error } = await db
@@ -34,8 +41,8 @@ export async function POST(request: NextRequest) {
         system_prompt: systemPrompt,
         n8n_workflow_id: workflowId,
         n8n_webhook_url: webhookUrl,
-        github_repo: githubRepo,
-        widget_injected: true,
+        github_repo: targetRepo ?? vercelProjectName ?? null,
+        widget_injected: widgetInjected,
         status: 'active',
       })
       .select()
