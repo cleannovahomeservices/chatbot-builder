@@ -16,6 +16,10 @@ export const metadata: Metadata = {
   title: "Chatbot Builder — Crea tu chatbot en 30 segundos",
   description:
     "Describe tu negocio o pega la URL de tu web y crea un chatbot personalizado en segundos. Sin código, sin complicaciones.",
+  icons: {
+    icon: "/logo.png",
+    apple: "/logo.png",
+  },
 };
 
 export default function RootLayout({

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 
 export default function Home() {
   const [mode, setMode] = useState<"describe" | "url">("describe");
@@ -9,6 +10,12 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-[#0A0A0A] text-white flex flex-col items-center justify-center px-4 py-16">
+      {/* Logo */}
+      <div className="mb-8 flex items-center gap-3">
+        <Image src="/logo.png" alt="Chatbot Builder" width={52} height={52} className="rounded-2xl" />
+        <span className="text-lg font-semibold text-white/80">Chatbot Builder</span>
+      </div>
+
       {/* Badge */}
       <div className="mb-8 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-1.5 text-sm text-white/50">
         <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
