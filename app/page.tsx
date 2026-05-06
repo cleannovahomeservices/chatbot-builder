@@ -109,7 +109,7 @@ export default function Home() {
             const input = mode === "describe" ? description : url;
             if (!input.trim()) return;
             const params = new URLSearchParams({ mode, input });
-            window.location.href = `/api/auth/github?${params}`;
+            window.location.href = `/login?${params}`;
           }}
           className="mt-8 w-full rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 py-4 text-base font-semibold text-white shadow-lg shadow-violet-500/20 transition hover:from-violet-500 hover:to-indigo-500 hover:shadow-violet-500/30 active:scale-[0.99] cursor-pointer disabled:opacity-40"
         >

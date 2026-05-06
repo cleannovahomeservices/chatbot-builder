@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 
 interface Chatbot {
   id: string;
@@ -15,6 +16,19 @@ interface Chatbot {
 export function ChatbotCard({ chatbot: initial }: { chatbot: Chatbot }) {
   const [chatbot, setChatbot] = useState(initial);
   const [loading, setLoading] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const router = useRouter();
+
+  async function deleteBot() {
+    if (!confirm(`¿Borrar el chatbot "${chatbot.name}"? Esta acción no se puede deshacer.`)) return;
+    setDeleting(true);
+    try {
+      await fetch(`/api/chatbots/${chatbot.id}`, { method: 'DELETE' });
+      router.refresh();
+    } finally {
+      setDeleting(false);
+    }
+  }
 
   async function toggleStatus() {
     const newStatus = chatbot.status === 'active' ? 'inactive' : 'active';
@@ -68,7 +82,7 @@ export function ChatbotCard({ chatbot: initial }: { chatbot: Chatbot }) {
           </span>
           <button
             onClick={toggleStatus}
-            disabled={loading}
+            disabled={loading || deleting}
             className={`text-xs px-3 py-1.5 rounded-lg border transition-colors cursor-pointer disabled:opacity-40 ${
               chatbot.status === 'active'
                 ? 'border-red-500/30 text-red-400 hover:bg-red-500/10'
@@ -76,6 +90,13 @@ export function ChatbotCard({ chatbot: initial }: { chatbot: Chatbot }) {
             }`}
           >
             {loading ? '…' : chatbot.status === 'active' ? 'Desactivar' : 'Activar'}
+          </button>
+          <button
+            onClick={deleteBot}
+            disabled={loading || deleting}
+            className="text-xs px-3 py-1.5 rounded-lg border border-white/10 text-white/30 hover:border-red-500/30 hover:text-red-400 transition-colors cursor-pointer disabled:opacity-40"
+          >
+            {deleting ? '…' : 'Borrar'}
           </button>
         </div>
       </div>
