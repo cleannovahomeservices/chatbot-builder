@@ -1,17 +1,21 @@
 import { createAdminClient } from './supabase/admin';
 import { cookies } from 'next/headers';
 import crypto from 'crypto';
+import { SESSION_COOKIE_NAME, SESSION_DURATION_SECONDS } from './constants';
 
-export const SESSION_COOKIE_NAME = 'chatbot_session';
-const SESSION_DURATION_SECONDS = 7 * 24 * 60 * 60;
+export { SESSION_COOKIE_NAME, SESSION_DURATION_SECONDS };
 
 export interface SessionUser {
   id: string;
-  github_id: number;
-  github_username: string;
+  github_id: number | null;
+  github_username: string | null;
   github_email: string | null;
   github_avatar_url: string | null;
-  github_access_token: string;
+  github_access_token: string | null;
+  google_id: string | null;
+  google_name: string | null;
+  google_email: string | null;
+  google_avatar_url: string | null;
 }
 
 export async function createSession(user: SessionUser): Promise<string> {
@@ -59,5 +63,3 @@ export async function deleteSession(token: string): Promise<void> {
   const db = createAdminClient();
   await db.from('sessions').delete().eq('token', token);
 }
-
-export { SESSION_DURATION_SECONDS };

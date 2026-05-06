@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { SESSION_COOKIE_NAME } from '@/lib/session';
+import { SESSION_COOKIE_NAME } from '@/lib/constants';
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
