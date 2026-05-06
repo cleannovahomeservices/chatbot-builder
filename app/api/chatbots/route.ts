@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
     let widgetInjected = false;
     const targetRepo = githubRepo ?? vercelGithubRepo;
 
-    if (targetRepo) {
+    if (targetRepo && user.github_access_token) {
       const [owner, repo] = targetRepo.split('/');
       await injectWidget(user.github_access_token, owner, repo, webhookUrl, name);
       widgetInjected = true;
