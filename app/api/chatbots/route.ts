@@ -15,6 +15,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Faltan campos requeridos' }, { status: 400 });
   }
 
+  const appUrl = new URL(request.url).origin;
   const db = createAdminClient();
   const webhookPath = `cb-${crypto.randomBytes(8).toString('hex')}`;
 
@@ -28,8 +29,7 @@ export async function POST(request: NextRequest) {
 
     if (targetRepo && user.github_access_token) {
       const [owner, repo] = targetRepo.split('/');
-      await injectWidget(user.github_access_token, owner, repo, webhookUrl, name);
-      widgetInjected = true;
+      widgetInjected = await injectWidget(user.github_access_token, owner, repo, webhookUrl, name, appUrl);
     }
 
     step = 'supabase';
