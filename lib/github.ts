@@ -56,45 +56,48 @@ export async function injectWidget(
   chatbotName: string,
   appUrl: string
 ): Promise<boolean> {
-  // 1. Try standard HTML files (static sites, CRA, Vue CLI, Angular, SvelteKit)
-  const htmlCandidates = [
-    'index.html',
-    'public/index.html',
-    'src/index.html',      // Angular, some React setups
-    'src/app.html',        // SvelteKit
-    'static/index.html',
-    'dist/index.html',
-  ];
-  for (const path of htmlCandidates) {
+  const headers = makeHeaders(token);
+
+  // Get the full repo file tree to know what actually exists
+  const treeRes = await fetch(
+    `${GITHUB_API}/repos/${owner}/${repo}/git/trees/HEAD?recursive=1`,
+    { headers }
+  );
+
+  let files: string[] = [];
+  if (treeRes.ok) {
+    const data = await treeRes.json();
+    files = ((data.tree ?? []) as { type: string; path: string }[])
+      .filter((f) => f.type === 'blob')
+      .map((f) => f.path)
+      .filter((p) => !p.includes('node_modules/') && !p.includes('.next/') && !p.includes('dist/') && !p.includes('build/') && !p.includes('.git/'));
+  }
+
+  // Priority 1: Next.js App Router root layout
+  const layout = files.find((f) => /^(src\/)?app\/layout\.[jt]sx?$/.test(f));
+  if (layout) {
+    const ok = await tryInjectIntoNextLayout(token, owner, repo, layout, webhookUrl, chatbotName, appUrl);
+    if (ok) return true;
+  }
+
+  // Priority 2: Next.js Pages Router _document
+  const document = files.find((f) => /^(src\/)?pages\/_document\.[jt]sx?$/.test(f));
+  if (document) {
+    const ok = await tryInjectIntoNextDocument(token, owner, repo, document, webhookUrl, chatbotName, appUrl);
+    if (ok) return true;
+  }
+
+  // Priority 3: Any HTML file — sort by depth (shallower first) so root entry points win
+  const htmlFiles = files
+    .filter((f) => (f.endsWith('.html') || f.endsWith('.htm')) && !f.includes('/vendor/'))
+    .sort((a, b) => a.split('/').length - b.split('/').length || a.length - b.length);
+
+  for (const path of htmlFiles) {
     const ok = await tryInjectIntoHtmlFile(token, owner, repo, path, webhookUrl, chatbotName, appUrl);
     if (ok) return true;
   }
 
-  // 2. Try Next.js App Router layout
-  const layoutCandidates = [
-    'app/layout.tsx', 'app/layout.jsx',
-    'src/app/layout.tsx', 'src/app/layout.jsx',
-  ];
-  for (const path of layoutCandidates) {
-    const ok = await tryInjectIntoNextLayout(token, owner, repo, path, webhookUrl, chatbotName, appUrl);
-    if (ok) return true;
-  }
-
-  // 3. Try Next.js Pages Router _document
-  const documentCandidates = [
-    'pages/_document.tsx', 'pages/_document.jsx',
-    'src/pages/_document.tsx', 'src/pages/_document.jsx',
-  ];
-  for (const path of documentCandidates) {
-    const ok = await tryInjectIntoNextDocument(token, owner, repo, path, webhookUrl, chatbotName, appUrl);
-    if (ok) return true;
-  }
-
-  // 4. Scan repo root for any .html file not already tried
-  const rootOk = await tryInjectIntoRootHtml(token, owner, repo, htmlCandidates, webhookUrl, chatbotName, appUrl);
-  if (rootOk) return true;
-
-  // 5. Last resort: create standalone helper file (user needs to link it manually)
+  // Fallback: create a standalone widget file in the repo root
   await createStandaloneWidgetFile(token, owner, repo, webhookUrl, chatbotName, appUrl);
   return false;
 }
@@ -222,29 +225,6 @@ async function tryInjectIntoNextDocument(
     }),
   });
   return putRes.ok;
-}
-
-async function tryInjectIntoRootHtml(
-  token: string,
-  owner: string,
-  repo: string,
-  alreadyTried: string[],
-  webhookUrl: string,
-  chatbotName: string,
-  appUrl: string
-): Promise<boolean> {
-  const headers = makeHeaders(token);
-  const res = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/contents/`, { headers });
-  if (!res.ok) return false;
-  const files = await res.json();
-  if (!Array.isArray(files)) return false;
-  const htmlFiles = (files as { type: string; name: string; path: string }[])
-    .filter((f) => f.type === 'file' && f.name.endsWith('.html') && !alreadyTried.includes(f.path));
-  for (const f of htmlFiles) {
-    const ok = await tryInjectIntoHtmlFile(token, owner, repo, f.path, webhookUrl, chatbotName, appUrl);
-    if (ok) return true;
-  }
-  return false;
 }
 
 async function createStandaloneWidgetFile(
