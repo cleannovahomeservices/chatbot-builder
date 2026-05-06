@@ -50,6 +50,7 @@ export function CreateWizard({
   } | null>(null);
   const [injectFile, setInjectFile] = useState<string | undefined>();
   const [injectReason, setInjectReason] = useState<string | undefined>();
+  const [injectPrUrl, setInjectPrUrl] = useState<string | undefined>();
 
   async function startGenerating() {
     if (!userInput.trim()) return;
@@ -205,6 +206,7 @@ export function CreateWizard({
         setCreatedChatbot(data.chatbot);
         setInjectFile(data.injectFile);
         setInjectReason(data.injectReason);
+        setInjectPrUrl(data.injectPrUrl);
         setStep("done");
       } else {
         setError(data.error ?? "Error desconocido al crear el chatbot.");
@@ -456,41 +458,46 @@ export function CreateWizard({
             <div className="inline-flex h-14 w-14 items-center justify-center rounded-full bg-emerald-500/20 mb-6 text-2xl">✓</div>
             <h2 className="text-2xl font-bold mb-2">¡Chatbot creado!</h2>
 
-            {createdChatbot?.widget_injected ? (
+            {/* Case 1: widget injected directly */}
+            {createdChatbot?.widget_injected && (
+              <p className="text-white/50 mb-6">
+                Widget inyectado en{" "}
+                <code className="bg-white/10 px-1 rounded text-xs">{injectFile}</code>.
+                Tu chatbot está activo.
+              </p>
+            )}
+
+            {/* Case 2: PR created — user just needs to merge */}
+            {!createdChatbot?.widget_injected && injectPrUrl && (
+              <div className="rounded-xl border border-violet-500/30 bg-violet-500/5 p-5 text-left mb-6">
+                <p className="text-sm font-semibold text-violet-300 mb-1">Un paso más: acepta el PR en GitHub</p>
+                <p className="text-xs text-white/50 mb-4">
+                  No podemos hacer commit directo en tu rama principal (está protegida). Hemos creado una Pull Request automáticamente.
+                  Solo tienes que abrirla y pulsar &ldquo;Merge pull request&rdquo;.
+                </p>
+                <a
+                  href={injectPrUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-block w-full text-center rounded-lg bg-violet-600 hover:bg-violet-500 px-4 py-2.5 text-sm font-semibold text-white transition"
+                >
+                  Ver Pull Request en GitHub →
+                </a>
+              </div>
+            )}
+
+            {/* Case 3: could not inject at all — show manual snippet */}
+            {!createdChatbot?.widget_injected && !injectPrUrl && (
               <>
                 <p className="text-white/50 mb-4">
-                  Widget inyectado automáticamente en{" "}
-                  <code className="bg-white/10 px-1 rounded text-xs">{injectFile}</code>.
-                  Tu chatbot está activo.
+                  Tu chatbot está activo. Añade este snippet antes del{" "}
+                  <code className="bg-white/10 px-1 rounded">&lt;/body&gt;</code> de tu web:
                 </p>
-                <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4 text-left mb-6">
-                  <p className="text-xs text-white/40 mb-1">Webhook URL</p>
-                  <p className="text-sm font-mono text-violet-300 break-all">{createdChatbot.n8n_webhook_url}</p>
-                </div>
-              </>
-            ) : (
-              <>
-                <p className="text-white/50 mb-4">Tu chatbot está activo. Añade este snippet antes del <code className="bg-white/10 px-1 rounded">&lt;/body&gt;</code> de tu web:</p>
                 <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4 text-left mb-4">
                   <pre className="text-xs text-violet-300 whitespace-pre-wrap break-all">{`<script>window.ChatbotConfig={webhookUrl:"${createdChatbot?.n8n_webhook_url}"};</script>\n<script src="https://chatbot-builder-iota.vercel.app/widget.js" async defer></script>`}</pre>
                 </div>
                 {injectReason && (
-                  <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 text-left mb-4">
-                    <p className="text-xs text-amber-400/80 mb-3">Inyección automática no completada: {injectReason}</p>
-                    {injectReason.includes('write permissions') && (
-                      <button
-                        onClick={() => {
-                          sessionStorage.setItem('wizard_resume', JSON.stringify({
-                            prompt, userInput, inputMode, chatbotName,
-                          }));
-                          window.location.href = '/api/auth/github?next=/create&force=true';
-                        }}
-                        className="w-full rounded-lg bg-amber-500/20 border border-amber-500/30 px-4 py-2 text-xs font-semibold text-amber-300 hover:bg-amber-500/30 transition cursor-pointer"
-                      >
-                        Reconectar GitHub con permisos de escritura →
-                      </button>
-                    )}
-                  </div>
+                  <p className="text-xs text-white/30 mb-4">Motivo: {injectReason}</p>
                 )}
               </>
             )}

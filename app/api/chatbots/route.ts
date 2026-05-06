@@ -27,6 +27,7 @@ export async function POST(request: NextRequest) {
     let widgetInjected = false;
     let injectReason: string | undefined;
     let injectFile: string | undefined;
+    let injectPrUrl: string | undefined;
     const targetRepo = githubRepo ?? vercelGithubRepo;
 
     if (targetRepo && user.github_access_token) {
@@ -35,6 +36,7 @@ export async function POST(request: NextRequest) {
       widgetInjected = result.injected;
       injectReason = result.reason;
       injectFile = result.file;
+      injectPrUrl = result.prUrl;
     } else if (!user.github_access_token) {
       injectReason = 'no GitHub token on account';
     }
@@ -56,7 +58,7 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (error) throw error;
-    return NextResponse.json({ chatbot, injectFile, injectReason });
+    return NextResponse.json({ chatbot, injectFile, injectReason, injectPrUrl });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`Create chatbot error [${step}]:`, msg);
