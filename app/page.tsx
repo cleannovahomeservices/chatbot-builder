@@ -1,8 +1,12 @@
 import { getSession } from '@/lib/session';
-import { redirect } from 'next/navigation';
+import { LandingPage } from './landing';
 
 export default async function Home() {
   const user = await getSession();
-  if (user) redirect('/dashboard');
-  redirect('/login');
+  return (
+    <LandingPage
+      isLoggedIn={!!user}
+      username={user?.github_username ?? user?.google_name ?? null}
+    />
+  );
 }
