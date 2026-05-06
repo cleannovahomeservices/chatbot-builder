@@ -128,6 +128,5 @@ function buildWorkflow(name: string, systemPrompt: string) {
       },
     },
     settings: { executionOrder: 'v1' },
-    tags: [],
   };
 }
