@@ -13,8 +13,12 @@ interface Chatbot {
   created_at: string;
   primary_color?: string;
   secondary_color?: string;
+  widget_style?: string;
   system_prompt?: string;
+  source_url?: string;
 }
+
+const WIDGET_STYLES = ['bubble','minimal','rounded','dark','neon','corporate','soft','floating','compact','retro'] as const;
 
 export function ChatbotCard({ chatbot: initial }: { chatbot: Chatbot }) {
   const [chatbot, setChatbot] = useState(initial);
@@ -22,11 +26,12 @@ export function ChatbotCard({ chatbot: initial }: { chatbot: Chatbot }) {
   const [deleting, setDeleting] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
   const [saveError, setSaveError] = useState('');
 
-  // Customization state
   const [editPrimary, setEditPrimary] = useState(chatbot.primary_color || '#7c3aed');
   const [editSecondary, setEditSecondary] = useState(chatbot.secondary_color || '#4338ca');
+  const [editStyle, setEditStyle] = useState(chatbot.widget_style || 'bubble');
   const [editPrompt, setEditPrompt] = useState(chatbot.system_prompt || '');
 
   const router = useRouter();
@@ -61,9 +66,44 @@ export function ChatbotCard({ chatbot: initial }: { chatbot: Chatbot }) {
   function openPanel() {
     setEditPrimary(chatbot.primary_color || '#7c3aed');
     setEditSecondary(chatbot.secondary_color || '#4338ca');
+    setEditStyle(chatbot.widget_style || 'bubble');
     setEditPrompt(chatbot.system_prompt || '');
     setSaveError('');
     setPanelOpen(true);
+  }
+
+  async function regeneratePrompt() {
+    const url = chatbot.source_url;
+    if (!url) { setSaveError('Este chatbot no tiene URL guardada. Edita el prompt manualmente.'); return; }
+    setRegenerating(true);
+    setSaveError('');
+    try {
+      const scrapeRes = await fetch('/api/scrape', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url }),
+      });
+      const scrapeData = await scrapeRes.json();
+      if (!scrapeData.text) { setSaveError('No se pudo scrapear la web.'); return; }
+
+      // Update colors + style if Claude Vision returned them
+      if (scrapeData.primaryColor) setEditPrimary(scrapeData.primaryColor);
+      if (scrapeData.secondaryColor) setEditSecondary(scrapeData.secondaryColor);
+      if (scrapeData.widgetStyle) setEditStyle(scrapeData.widgetStyle);
+
+      const genRes = await fetch('/api/generate-prompt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ input: scrapeData.text }),
+      });
+      const genData = await genRes.json();
+      if (genData.prompt) setEditPrompt(genData.prompt);
+      else setSaveError('Error generando el prompt.');
+    } catch {
+      setSaveError('Error al regenerar. Inténtalo de nuevo.');
+    } finally {
+      setRegenerating(false);
+    }
   }
 
   async function saveCustomization() {
@@ -77,6 +117,7 @@ export function ChatbotCard({ chatbot: initial }: { chatbot: Chatbot }) {
           action: 'customize',
           primaryColor: editPrimary,
           secondaryColor: editSecondary,
+          widgetStyle: editStyle,
           systemPrompt: editPrompt || undefined,
         }),
       });
@@ -98,7 +139,6 @@ export function ChatbotCard({ chatbot: initial }: { chatbot: Chatbot }) {
         <div className="flex items-start justify-between gap-4">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-3 mb-2 flex-wrap">
-              {/* Color swatch */}
               <div
                 className="w-4 h-4 rounded-full shrink-0 border border-white/10"
                 style={{ background: `linear-gradient(135deg, ${chatbot.primary_color || '#7c3aed'}, ${chatbot.secondary_color || '#4338ca'})` }}
@@ -110,6 +150,11 @@ export function ChatbotCard({ chatbot: initial }: { chatbot: Chatbot }) {
               {chatbot.widget_injected && (
                 <span className="text-xs px-2 py-0.5 rounded-full border border-violet-500/30 text-violet-400 bg-violet-500/10">
                   Widget inyectado
+                </span>
+              )}
+              {chatbot.widget_style && chatbot.widget_style !== 'bubble' && (
+                <span className="text-xs px-2 py-0.5 rounded-full border border-white/10 text-white/30 bg-white/5">
+                  {chatbot.widget_style}
                 </span>
               )}
             </div>
@@ -147,12 +192,10 @@ export function ChatbotCard({ chatbot: initial }: { chatbot: Chatbot }) {
         </div>
       </div>
 
-      {/* Customization panel */}
       {panelOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={(e) => { if (e.target === e.currentTarget) setPanelOpen(false); }}>
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
           <div className="relative w-full max-w-lg bg-[#111] border border-white/10 rounded-2xl shadow-2xl overflow-hidden">
-            {/* Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-white/10">
               <div>
                 <h3 className="font-semibold text-white">Personalizar chatbot</h3>
@@ -165,34 +208,24 @@ export function ChatbotCard({ chatbot: initial }: { chatbot: Chatbot }) {
               {/* Color pickers */}
               <div>
                 <p className="text-sm font-medium text-white/80 mb-3">Colores del widget</p>
-                <div className="flex gap-4">
+                <div className="flex gap-4 mb-3">
                   <label className="flex-1">
                     <span className="text-xs text-white/50 block mb-1.5">Color principal</span>
                     <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-lg px-3 py-2">
-                      <input
-                        type="color"
-                        value={editPrimary}
-                        onChange={(e) => setEditPrimary(e.target.value)}
-                        className="w-7 h-7 rounded cursor-pointer border-0 bg-transparent p-0"
-                      />
+                      <input type="color" value={editPrimary} onChange={(e) => setEditPrimary(e.target.value)} className="w-7 h-7 rounded cursor-pointer border-0 bg-transparent p-0" />
                       <span className="text-xs font-mono text-white/70">{editPrimary}</span>
                     </div>
                   </label>
                   <label className="flex-1">
                     <span className="text-xs text-white/50 block mb-1.5">Color secundario</span>
                     <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-lg px-3 py-2">
-                      <input
-                        type="color"
-                        value={editSecondary}
-                        onChange={(e) => setEditSecondary(e.target.value)}
-                        className="w-7 h-7 rounded cursor-pointer border-0 bg-transparent p-0"
-                      />
+                      <input type="color" value={editSecondary} onChange={(e) => setEditSecondary(e.target.value)} className="w-7 h-7 rounded cursor-pointer border-0 bg-transparent p-0" />
                       <span className="text-xs font-mono text-white/70">{editSecondary}</span>
                     </div>
                   </label>
                 </div>
                 {/* Live preview */}
-                <div className="mt-3 rounded-xl overflow-hidden border border-white/10" style={{ background: '#0d0d0d' }}>
+                <div className="rounded-xl overflow-hidden border border-white/10" style={{ background: '#0d0d0d' }}>
                   <div className="px-4 py-2.5 text-xs font-semibold text-white flex items-center gap-2" style={{ background: `linear-gradient(135deg, ${editPrimary}, ${editSecondary})` }}>
                     <span className="w-2 h-2 rounded-full bg-green-400 inline-block" />
                     {chatbot.name}
@@ -204,9 +237,36 @@ export function ChatbotCard({ chatbot: initial }: { chatbot: Chatbot }) {
                 </div>
               </div>
 
+              {/* Style selector */}
+              <div>
+                <p className="text-sm font-medium text-white/80 mb-2">Estilo del widget</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {WIDGET_STYLES.map((st) => (
+                    <button
+                      key={st}
+                      onClick={() => setEditStyle(st)}
+                      className={`px-3 py-1 rounded-full text-xs font-medium transition-all cursor-pointer border ${editStyle === st ? 'bg-violet-600 border-violet-500 text-white' : 'bg-white/5 border-white/10 text-white/50 hover:text-white hover:border-white/20'}`}
+                    >
+                      {st}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               {/* System prompt */}
               <div>
-                <p className="text-sm font-medium text-white/80 mb-2">Contenido del chatbot</p>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-sm font-medium text-white/80">Contenido del chatbot</p>
+                  {chatbot.source_url && (
+                    <button
+                      onClick={regeneratePrompt}
+                      disabled={regenerating}
+                      className="text-xs px-3 py-1 rounded-lg border border-violet-500/30 text-violet-400 hover:bg-violet-500/10 transition cursor-pointer disabled:opacity-50"
+                    >
+                      {regenerating ? 'Regenerando…' : '↻ Regenerar desde web'}
+                    </button>
+                  )}
+                </div>
                 <p className="text-xs text-white/40 mb-3">Edita las instrucciones que definen cómo responde tu chatbot.</p>
                 <textarea
                   value={editPrompt}

@@ -162,27 +162,32 @@ async function scrapeWithApify(url: string): Promise<string | null> {
   if (!token) return null;
   try {
     const res = await fetch(
-      `https://api.apify.com/v2/acts/apify~website-content-crawler/run-sync-get-dataset-items?token=${token}&timeout=12&memory=256`,
+      `https://api.apify.com/v2/acts/apify~website-content-crawler/run-sync-get-dataset-items?token=${token}&timeout=40&memory=1024`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           startUrls: [{ url }],
-          maxCrawlPages: 3,
+          maxCrawlPages: 5,
           maxCrawlDepth: 1,
           crawlerType: 'playwright:adaptive',
         }),
-        signal: AbortSignal.timeout(20_000),
+        signal: AbortSignal.timeout(50_000),
       }
     );
-    if (!res.ok) return null;
+    if (!res.ok) {
+      console.error('[apify] error:', res.status, await res.text().catch(() => ''));
+      return null;
+    }
     const items = await res.json() as Array<{ text?: string; url?: string }>;
     if (!Array.isArray(items) || items.length === 0) return null;
+    console.log(`[apify] got ${items.length} pages for ${url}`);
     return items
       .map(i => i.url !== url ? `\n\n[${i.url}]\n${(i.text ?? '').slice(0, 5000)}` : (i.text ?? '').slice(0, 10000))
       .join('\n\n')
       .slice(0, 20000);
-  } catch {
+  } catch (e) {
+    console.error('[apify] fetch error:', e);
     return null;
   }
 }
