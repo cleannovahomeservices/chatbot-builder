@@ -55,21 +55,97 @@ async function fetchJinaText(url: string): Promise<string> {
   }
 }
 
+// ─── Sitemap discovery: works for ALL website types ─────────────────────────
+// WordPress, Next.js, Shopify, Squarespace, Wix, Webflow — all have sitemaps.
+// This is the most reliable URL discovery method, independent of link rendering.
+const CONTENT_KW = [
+  'precio','tarifa','servicio','menu','carta','catalogo','producto','contacto','horario',
+  'tratamiento','reserva','cita','oferta','service','pricing','price','product','contact',
+  'about','hours','team','equipo','info','clase','clases','retiro','retiros','practica',
+  'sesion','sesiones','taller','talleres','formacion','curso','actividad','programa',
+  'sobre','coach','yoga','meditacion','bienestar','workshop','retreat','training',
+  'course','nosotros','voz','terapeutica','musica','tienda','shop','menu','who','work',
+];
+
+async function fetchSitemapUrls(url: string): Promise<string[]> {
+  const base = new URL(url);
+  const origin = base.origin;
+
+  // 1. Try to find sitemap URL from robots.txt
+  const robotsCandidates: string[] = [];
+  try {
+    const r = await fetch(`${origin}/robots.txt`, { headers: { 'User-Agent': BOT_UA }, signal: AbortSignal.timeout(4_000) });
+    if (r.ok) {
+      const txt = await r.text();
+      for (const m of txt.matchAll(/Sitemap:\s*(https?:\/\/\S+)/gi)) robotsCandidates.push(m[1]);
+    }
+  } catch { /* skip */ }
+
+  // 2. Try common sitemap paths + any found in robots.txt
+  const candidates = [
+    ...robotsCandidates,
+    `${origin}/sitemap.xml`,
+    `${origin}/sitemap_index.xml`,
+    `${origin}/sitemap/`,
+    `${origin}/sitemap`,
+    `${origin}/wp-sitemap.xml`,
+    `${origin}/page-sitemap.xml`,
+    `${origin}/post-sitemap.xml`,
+  ];
+
+  for (const sitemapUrl of candidates) {
+    try {
+      const res = await fetch(sitemapUrl, { headers: { 'User-Agent': BOT_UA }, signal: AbortSignal.timeout(5_000) });
+      if (!res.ok) continue;
+      const ct = res.headers.get('content-type') ?? '';
+      if (!ct.includes('xml') && !ct.includes('text')) continue;
+      const xml = await res.text();
+      if (!xml.includes('<loc>') && !xml.includes('<sitemap>')) continue;
+
+      // Handle sitemap index (contains links to other sitemaps)
+      const subSitemaps = [...xml.matchAll(/<sitemap>[\s\S]*?<loc>(https?:\/\/[^<]+)<\/loc>/gi)].map(m => m[1].trim());
+      let allLocs = [...xml.matchAll(/<loc>(https?:\/\/[^<]+)<\/loc>/gi)].map(m => m[1].trim());
+
+      if (subSitemaps.length > 0) {
+        // Fetch first 2 sub-sitemaps to get their URLs
+        const subResults = await Promise.allSettled(
+          subSitemaps.slice(0, 2).map(async s => {
+            const r2 = await fetch(s, { headers: { 'User-Agent': BOT_UA }, signal: AbortSignal.timeout(4_000) });
+            if (!r2.ok) return [];
+            const xml2 = await r2.text();
+            return [...xml2.matchAll(/<loc>(https?:\/\/[^<]+)<\/loc>/gi)].map(m => m[1].trim());
+          })
+        );
+        for (const r2 of subResults) {
+          if (r2.status === 'fulfilled') allLocs.push(...r2.value);
+        }
+      }
+
+      // Filter: same domain, not images/sitemaps/feeds/assets
+      const same = allLocs.filter(u => {
+        try { const p = new URL(u); return p.hostname === base.hostname && !/\.(jpg|jpeg|png|gif|svg|webp|pdf|xml|rss|atom|css|js)$/i.test(p.pathname); }
+        catch { return false; }
+      });
+
+      // Prioritize: content keyword matches first, then any non-homepage pages
+      const withKw = same.filter(u => CONTENT_KW.some(k => u.toLowerCase().includes(k)));
+      const others = same.filter(u => u !== url && u !== url + '/' && !withKw.includes(u));
+      const result = [...withKw, ...others].slice(0, 6);
+
+      if (result.length > 0) {
+        console.log(`[sitemap] found ${same.length} URLs at ${sitemapUrl}, using ${result.length}`);
+        return result;
+      }
+    } catch { /* skip */ }
+  }
+
+  return [];
+}
+
 // Fetches keyword-matched subpages with Jina (services, prices, contact, hours…)
 // Parses links from BOTH raw HTML (static sites) and Jina markdown (SPAs where HTML is just a shell).
 async function fetchSubpagesWithJina(html: string, jinaText: string, baseUrl: string): Promise<string> {
   const base = new URL(baseUrl);
-  const keywords = [
-    // Commerce / services
-    'precio','tarifa','servicio','menu','carta','catalogo','producto','contacto','horario',
-    'tratamiento','reserva','cita','oferta','service','pricing','price','product','contact',
-    'about','hours','team','equipo','info',
-    // Wellness / coaching / courses (critical for spas, yoga, coaching, breathwork sites)
-    'clase','clases','retiro','retiros','practica','practicas','sesion','sesiones',
-    'taller','talleres','formacion','curso','actividad','programa','respiracion',
-    'sobre','coach','yoga','meditacion','bienestar','workshop','retreat','training',
-    'course','nosotros','trabajo','oferta','evento','voz','terapeutica','musica',
-  ];
   const seen = new Set<string>([baseUrl, baseUrl.replace(/\/$/, ''), baseUrl + '/']);
   const links: string[] = [];
 
@@ -80,15 +156,15 @@ async function fetchSubpagesWithJina(html: string, jinaText: string, baseUrl: st
       u.hash = ''; u.search = '';
       const href = u.href;
       if (seen.has(href)) return;
-      if (keywords.some(k => href.toLowerCase().includes(k))) { seen.add(href); links.push(href); }
+      if (CONTENT_KW.some(k => href.toLowerCase().includes(k))) { seen.add(href); links.push(href); }
     } catch { /* skip */ }
   };
 
-  // Raw HTML hrefs (works for static/SSR sites)
+  // Raw HTML hrefs (static/SSR sites: WordPress, Next.js SSR, Shopify, plain HTML)
   for (const m of html.matchAll(/href="([^"#][^"]*?)"/gi)) addLink(m[1]);
 
   // Jina markdown links — absolute [text](https://...) and relative [text](/path)
-  // This is the critical path for SPAs where raw HTML is just a JS shell
+  // Critical for SPAs (React/Vue/Vite) where raw HTML has no navigation links
   for (const m of jinaText.matchAll(/\]\((https?:\/\/[^\)\s]+)\)/g)) addLink(m[1]);
   for (const m of jinaText.matchAll(/\]\((\/[^\)\s)]+)\)/g)) addLink(m[1]);
 
@@ -318,8 +394,7 @@ function extractJsonLd(html: string): string {
 }
 function extractInternalLinks(html: string, baseUrl: string): string[] {
   const base = new URL(baseUrl); const seen = new Set<string>(); const links: string[] = [];
-  const kw = ['precio','tarifa','servicio','menu','carta','catalogo','producto','contacto','horario','tratamiento','reserva','cita','nosotros','oferta','service','pricing','price','product','contact','about','hours','clase','clases','retiro','retiros','practica','practicas','sesion','sesiones','taller','talleres','formacion','curso','actividad','programa','sobre','coach','yoga','meditacion','bienestar','workshop','retreat','training','course'];
-  for (const m of html.matchAll(/href="([^"#][^"]*?)"/gi)) { try { const u = new URL(m[1], baseUrl); if (u.hostname !== base.hostname) continue; u.hash = ''; u.search = ''; const h = u.href; if (h === baseUrl || seen.has(h)) continue; if (kw.some(k => h.toLowerCase().includes(k))) { seen.add(h); links.push(h); } } catch { /* skip */ } }
+  for (const m of html.matchAll(/href="([^"#][^"]*?)"/gi)) { try { const u = new URL(m[1], baseUrl); if (u.hostname !== base.hostname) continue; u.hash = ''; u.search = ''; const h = u.href; if (h === baseUrl || seen.has(h)) continue; if (CONTENT_KW.some(k => h.toLowerCase().includes(k))) { seen.add(h); links.push(h); } } catch { /* skip */ } }
   return links.slice(0, 3);
 }
 
@@ -355,23 +430,26 @@ export async function POST(request: NextRequest) {
 
   try {
     // Phase 1: Start everything in parallel
-    // - Apify (80s timeout, 1 page only — enough for homepage SPA render)
-    // - Jina (45s timeout — backup text source)
-    // - Visual (colors via Claude Haiku screenshot — fast, working)
-    // - HTML fetch (for contact hrefs, CSS color fallback, JS bundle URL discovery)
-    const [apifyResult, jinaResult, visualResult, htmlResult] = await Promise.allSettled([
+    // - Apify: Playwright renders full SPA (handles React/Vue/Vite, lazy loading, scroll)
+    // - Jina: JS-rendering text reader (fast backup, good for SSR/SSG/WordPress)
+    // - Visual: colors via Claude Haiku screenshot
+    // - HTML: raw fetch for static HTML, contact hrefs, CSS colors, JS bundle URLs
+    // - Sitemap: discovers ALL subpages for any website type (WordPress, Shopify, Next.js…)
+    const [apifyResult, jinaResult, visualResult, htmlResult, sitemapResult] = await Promise.allSettled([
       scrapeWithApify(url),
       fetchJinaText(url),
       analyzeWebsite(url),
       fetch(url, { headers: { 'User-Agent': BOT_UA }, signal: AbortSignal.timeout(8_000) }).then(r => r.text()),
+      fetchSitemapUrls(url),
     ]);
 
     const html = htmlResult.status === 'fulfilled' ? htmlResult.value : '';
     const visual = visualResult.status === 'fulfilled' ? visualResult.value : null;
     const apifyText = apifyResult.status === 'fulfilled' ? apifyResult.value : null;
     const jinaText = jinaResult.status === 'fulfilled' ? jinaResult.value : '';
+    const sitemapUrls = sitemapResult.status === 'fulfilled' ? sitemapResult.value : [];
 
-    console.log(`[scrape] apify=${apifyText?.length ?? 'null'} jina=${jinaText.length} html=${html.length}`);
+    console.log(`[scrape] apify=${apifyText?.length ?? 'null'} jina=${jinaText.length} html=${html.length} sitemap=${sitemapUrls.length}`);
 
     // Colors: screenshot (Claude Haiku) first, CSS extraction as fallback
     const screenshotHasColors = visual && visual.primaryColor !== '#1e293b' && visual.secondaryColor !== '#334155';
@@ -425,24 +503,42 @@ export async function POST(request: NextRequest) {
 
     if (contactInfo) console.log('[scrape] final contactInfo:', contactInfo);
 
-    // Jina subpages: fetch keyword-matched subpages in parallel (services, prices, contact…)
-    // Parses links from both raw HTML and Jina markdown — critical for SPAs where HTML is a JS shell.
-    const jinaSubpages = html ? await fetchSubpagesWithJina(html, jinaText, url) : '';
-    if (jinaSubpages) console.log(`[jina-subpages] got ${jinaSubpages.length} chars`);
+    // Subpage discovery — 3-layer waterfall, stops at first layer that finds content:
+    //
+    // Layer 1 — Sitemap (best coverage, works for WordPress/Shopify/Next.js/Wix/Squarespace)
+    // Layer 2 — Link discovery from rendered HTML + Jina markdown (SSR + SPAs with nav links)
+    // Layer 3 — Proactive probe of common paths (SPAs where Jina doesn't capture nav links)
+    let subpageText = '';
 
-    // Proactive probe: when link-discovery finds nothing and homepage content is sparse,
-    // try common paths directly (/servicios, /contacto, /sobre, etc.).
-    // Handles SPAs where Jina renders homepage text but not navigation links.
-    const mainTextLen = (apifyText ?? jinaText).length;
-    const probePages = (!jinaSubpages && mainTextLen < 5000)
-      ? await probeKeyPages(url)
-      : '';
-    if (probePages) console.log(`[probe] got ${probePages.length} chars`);
+    if (sitemapUrls.length > 0) {
+      // Layer 1: Sitemap found — fetch the relevant pages with Jina
+      console.log(`[sitemap] fetching ${sitemapUrls.length} pages`);
+      const results = await Promise.allSettled(sitemapUrls.map(u => fetchJinaText(u)));
+      subpageText = results
+        .filter((r): r is PromiseFulfilledResult<string> => r.status === 'fulfilled' && r.value.length > 50)
+        .map((r, i) => `\n\n[${sitemapUrls[i]}]\n${r.value}`)
+        .join('');
+      if (subpageText) console.log(`[sitemap] got ${subpageText.length} chars from subpages`);
+    }
 
-    // After fetching subpages/probe: extract social links from that additional content too
-    const extraText = jinaSubpages + probePages;
-    if (extraText) {
-      const extraSocial = extractSocialLinks(extraText, extraText);
+    if (!subpageText && html) {
+      // Layer 2: Link discovery from HTML + Jina output (SSR sites, some SPAs)
+      subpageText = await fetchSubpagesWithJina(html, jinaText, url);
+      if (subpageText) console.log(`[link-discovery] got ${subpageText.length} chars`);
+    }
+
+    if (!subpageText) {
+      // Layer 3: Proactive probe — blind-try common paths (React SPAs without sitemap)
+      const mainTextLen = (apifyText ?? jinaText).length;
+      if (mainTextLen < 5000) {
+        subpageText = await probeKeyPages(url);
+        if (subpageText) console.log(`[probe] got ${subpageText.length} chars`);
+      }
+    }
+
+    // Extract social links from subpage content too (footer is on every page)
+    if (subpageText) {
+      const extraSocial = extractSocialLinks(subpageText, subpageText);
       if (extraSocial) {
         for (const line of extraSocial.split('\n').filter(Boolean)) {
           const url2 = line.split(': ')[1] ?? '';
@@ -454,14 +550,14 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Text: Apify > Jina > HTML fallback (subpage + probe content appended to whichever wins)
+    // Text: Apify > Jina > HTML fallback (subpage content appended to whichever wins)
     let textContent: string;
     if (apifyText) {
       console.log('[scrape] using apify text');
-      textContent = injectContactIfMissing(apifyText + jinaSubpages + probePages, contactInfo);
+      textContent = injectContactIfMissing(apifyText + subpageText, contactInfo);
     } else if (jinaText && jinaText.length > 100) {
       console.log('[scrape] using jina text');
-      textContent = injectContactIfMissing(jinaText + jinaSubpages + probePages, contactInfo);
+      textContent = injectContactIfMissing(jinaText + subpageText, contactInfo);
     } else if (html) {
       console.log('[scrape] fallback to html scraping');
       const rawText = extractText(html);
