@@ -23,6 +23,26 @@ const FALLBACK: VisualAnalysis = {
 
 const BOT_UA = 'Mozilla/5.0 (compatible; ChatbotBuilder/1.0)';
 
+// Extracts phone/WhatsApp/email from HTML links — often not visible as text in SPAs
+function extractContactLinks(html: string): string {
+  const phones = new Set<string>();
+  const whatsapps = new Set<string>();
+  const emails = new Set<string>();
+
+  for (const m of html.matchAll(/href="tel:([^"]+)"/gi))
+    phones.add(decodeURIComponent(m[1].trim()));
+  for (const m of html.matchAll(/href="https?:\/\/wa\.me\/(\d+)/gi))
+    whatsapps.add('+' + m[1]);
+  for (const m of html.matchAll(/href="mailto:([^"?#]+)"/gi))
+    emails.add(m[1].trim());
+
+  const parts: string[] = [];
+  if (phones.size) parts.push('Teléfono: ' + [...phones].join(', '));
+  if (whatsapps.size) parts.push('WhatsApp: ' + [...whatsapps].join(', '));
+  if (emails.size) parts.push('Email: ' + [...emails].join(', '));
+  return parts.join('\n');
+}
+
 function extractSubPageLinks(html: string, baseUrl: string): string[] {
   const base = new URL(baseUrl);
   const keywords = [
@@ -109,8 +129,9 @@ export async function analyzeWebsite(url: string): Promise<VisualAnalysis> {
   if (!process.env.SCREENSHOTONE_ACCESS_KEY) return FALLBACK;
 
   try {
-    // Step 1: Light HTML fetch for sub-page link detection
+    // Step 1: Light HTML fetch for sub-page links + contact info hidden in href="tel:/mailto:/wa.me"
     const subPageLinks: string[] = [];
+    let contactInfo = '';
     try {
       const htmlRes = await fetch(url, {
         headers: { 'User-Agent': BOT_UA },
@@ -118,6 +139,8 @@ export async function analyzeWebsite(url: string): Promise<VisualAnalysis> {
       });
       const html = await htmlRes.text();
       subPageLinks.push(...extractSubPageLinks(html, url));
+      contactInfo = extractContactLinks(html);
+      if (contactInfo) console.log('[visual] contact links found:', contactInfo);
     } catch { /* ignore — screenshots will still work */ }
 
     // Step 2: Screenshots + Jina text in parallel (Jina finishes inside the screenshot window)
@@ -145,11 +168,13 @@ export async function analyzeWebsite(url: string): Promise<VisualAnalysis> {
       .map((u, i) => `Página ${i + 1}: ${u}`)
       .join('\n');
 
+    const contactBlock = contactInfo ? `\nCONTACTO DETECTADO EN LINKS (incluye esto en businessInfo):\n${contactInfo}` : '';
+
     const textPrompt: Anthropic.TextBlockParam = {
       type: 'text',
       text: `Analiza la web de un negocio y extrae la información solicitada.
 ${validShots.length > 0 ? `\nCapturas de pantalla (${validShots.length}):\n${pageLabels}` : ''}
-${jinaText ? `\nTEXTO COMPLETO EXTRAÍDO DE LA WEB:\n---\n${jinaText}\n---` : ''}
+${jinaText ? `\nTEXTO COMPLETO EXTRAÍDO DE LA WEB:\n---\n${jinaText}\n---` : ''}${contactBlock}
 
 Devuelve SOLO un objeto JSON válido sin explicación adicional ni markdown:
 

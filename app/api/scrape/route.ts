@@ -170,11 +170,12 @@ export async function POST(request: NextRequest) {
     const visual = await analyzeWebsite(url);
 
     if (visual.businessInfo) {
-      // Visual analysis got everything — use it directly
+      // Only return colors if they are real (not fallback defaults — avoids overwriting with dark)
+      const hasRealColors = visual.primaryColor !== '#1e293b' && visual.secondaryColor !== '#334155';
       return NextResponse.json({
         text: visual.businessInfo,
-        primaryColor: visual.primaryColor,
-        secondaryColor: visual.secondaryColor,
+        primaryColor: hasRealColors ? visual.primaryColor : undefined,
+        secondaryColor: hasRealColors ? visual.secondaryColor : undefined,
         widgetStyle: visual.widgetStyle,
       });
     }
