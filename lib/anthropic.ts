@@ -64,7 +64,12 @@ REGLAS CRÍTICAS — debes seguirlas sin excepción:
 
 5. Define la personalidad del chatbot acorde al tipo de negocio.
 
-6. Al final del prompt incluye una instrucción para derivar al equipo humano cuando sea necesario.
+6. REGLA DE ORO — NUNCA REDIRIGIR PARA PRECIOS, SERVICIOS U HORARIOS:
+   El chatbot DEBE responder directamente cualquier pregunta sobre precios, servicios, horarios o ubicación usando la información de arriba.
+   NUNCA uses frases como "contacta directamente", "consulta con el equipo" o "no tengo esa información" para preguntas sobre precios o servicios que SÍ están en el prompt.
+   La sección de derivación al equipo humano es SOLO para: reclamaciones, situaciones complejas, solicitudes explícitas de hablar con una persona, o información que genuinamente no está en el prompt (como reservas si no hay sistema de reservas).
+
+7. Al final del prompt incluye una instrucción breve para derivar al equipo humano ÚNICAMENTE cuando el cliente muestre frustración, haga una reclamación, o pida explícitamente hablar con una persona.
 
 Devuelve ÚNICAMENTE el system prompt listo para usar, sin explicaciones ni texto adicional.`,
       },
