@@ -168,12 +168,33 @@ export async function analyzeWebsite(url: string): Promise<VisualAnalysis> {
       .map((u, i) => `Página ${i + 1}: ${u}`)
       .join('\n');
 
-    // Also extract Spanish phone numbers visible in Jina text (e.g. "635 76 59 41")
+    // Extract wa.me links from Jina markdown (e.g. [WhatsApp](https://wa.me/34635765941))
+    for (const m of jinaText.matchAll(/wa\.me\/(\d+)/gi)) {
+      const num = '+' + m[1];
+      if (!contactInfo.includes(m[1].slice(-9))) {
+        contactInfo = contactInfo ? `${contactInfo}\nWhatsApp: ${num}` : `WhatsApp: ${num}`;
+        console.log('[visual] wa.me found in jina:', num);
+      }
+    }
+
+    // Extract tel: links from Jina markdown (e.g. [Llamar](tel:+34635765941))
+    for (const m of jinaText.matchAll(/\(tel:([+\d\s\-().]+?)\)/gi)) {
+      const num = m[1].trim();
+      if (num.length >= 9 && !contactInfo.includes(num.replace(/\D/g, '').slice(-9))) {
+        contactInfo = contactInfo ? `${contactInfo}\nTeléfono: ${num}` : `Teléfono: ${num}`;
+        console.log('[visual] tel: found in jina:', num);
+      }
+    }
+
+    // Also extract Spanish phone numbers visible as plain text in Jina (e.g. "635 76 59 41")
     const phoneMatches = jinaText.match(/(?:\+?34[\s-]?)?(?:6\d{2}|7[0-9]\d)[\s-]?\d{2}[\s-]?\d{2}[\s-]?\d{2}/g);
     if (phoneMatches) {
-      const uniquePhones = [...new Set(phoneMatches.map(p => p.trim()))].join(', ');
-      if (uniquePhones && !contactInfo.includes(uniquePhones.slice(0, 6))) {
-        contactInfo = contactInfo ? `${contactInfo}\nTeléfono: ${uniquePhones}` : `Teléfono: ${uniquePhones}`;
+      const uniquePhones = [...new Set(phoneMatches.map(p => p.trim()))];
+      for (const phone of uniquePhones) {
+        const digits = phone.replace(/\D/g, '');
+        if (!contactInfo.includes(digits.slice(-9))) {
+          contactInfo = contactInfo ? `${contactInfo}\nTeléfono: ${phone}` : `Teléfono: ${phone}`;
+        }
       }
     }
 
