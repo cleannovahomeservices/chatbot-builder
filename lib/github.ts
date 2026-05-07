@@ -1,4 +1,17 @@
+import { patchCspInFile } from './anthropic';
+
 const GITHUB_API = 'https://api.github.com';
+
+const CSP_CONFIG_FILES = [
+  'vercel.json',
+  'netlify.toml',
+  '_headers',
+  'public/_headers',
+  'static/_headers',
+  'next.config.js',
+  'next.config.ts',
+  'next.config.mjs',
+];
 
 export function getOAuthUrl(state: string, origin: string): string {
   const params = new URLSearchParams({
@@ -58,6 +71,7 @@ export interface InjectResult {
   file?: string;
   reason?: string;
   prUrl?: string;
+  cspPatched?: string[];
 }
 
 export async function injectWidget(
@@ -112,33 +126,92 @@ export async function injectWidget(
 
   console.log(`[inject] ${owner}/${repo}: ${files.length} files`);
 
+  let injectResult: InjectResult | null = null;
+
   const layout = files.find((f) => /^(src\/)?app\/layout\.[jt]sx?$/.test(f));
   if (layout) {
     const result = await tryInjectIntoNextLayout(token, owner, repo, layout, webhookUrl, chatbotName, appUrl);
-    if (result.ok) return { injected: !result.prUrl, file: layout, prUrl: result.prUrl };
-    return { injected: false, reason: result.error };
+    if (result.ok) injectResult = { injected: !result.prUrl, file: layout, prUrl: result.prUrl };
+    else return { injected: false, reason: result.error };
   }
 
-  const document = files.find((f) => /^(src\/)?pages\/_document\.[jt]sx?$/.test(f));
-  if (document) {
-    const result = await tryInjectIntoNextDocument(token, owner, repo, document, webhookUrl, chatbotName, appUrl);
-    if (result.ok) return { injected: !result.prUrl, file: document, prUrl: result.prUrl };
-    return { injected: false, reason: result.error };
+  if (!injectResult) {
+    const document = files.find((f) => /^(src\/)?pages\/_document\.[jt]sx?$/.test(f));
+    if (document) {
+      const result = await tryInjectIntoNextDocument(token, owner, repo, document, webhookUrl, chatbotName, appUrl);
+      if (result.ok) injectResult = { injected: !result.prUrl, file: document, prUrl: result.prUrl };
+      else return { injected: false, reason: result.error };
+    }
   }
 
-  const htmlFiles = files
-    .filter((f) => (f.endsWith('.html') || f.endsWith('.htm')) && !f.includes('/vendor/'))
-    .sort((a, b) => a.split('/').length - b.split('/').length || a.length - b.length);
+  if (!injectResult) {
+    const htmlFiles = files
+      .filter((f) => (f.endsWith('.html') || f.endsWith('.htm')) && !f.includes('/vendor/'))
+      .sort((a, b) => a.split('/').length - b.split('/').length || a.length - b.length);
 
-  for (const path of htmlFiles) {
-    const result = await tryInjectIntoHtmlFile(token, owner, repo, path, webhookUrl, chatbotName, appUrl);
-    if (result.ok) return { injected: !result.prUrl, file: path, prUrl: result.prUrl };
+    for (const path of htmlFiles) {
+      const result = await tryInjectIntoHtmlFile(token, owner, repo, path, webhookUrl, chatbotName, appUrl);
+      if (result.ok) { injectResult = { injected: !result.prUrl, file: path, prUrl: result.prUrl }; break; }
+    }
+
+    if (!injectResult) {
+      const reason = htmlFiles.length > 0
+        ? 'no se pudo modificar ningún archivo (sin permisos o branch protegida)'
+        : 'no se encontró layout.tsx, _document ni archivos HTML en el repo';
+      return { injected: false, reason };
+    }
   }
 
-  const reason = htmlFiles.length > 0
-    ? 'no se pudo modificar ningún archivo (sin permisos o branch protegida)'
-    : 'no se encontró layout.tsx, _document ni archivos HTML en el repo';
-  return { injected: false, reason };
+  // Auto-patch CSP config files so the widget is allowed to load
+  const cspPatched = await patchCspFiles(token, owner, repo, files, appUrl);
+  return { ...injectResult, cspPatched };
+}
+
+async function patchCspFiles(
+  token: string,
+  owner: string,
+  repo: string,
+  files: string[],
+  appUrl: string
+): Promise<string[]> {
+  const headers = makeHeaders(token);
+  const patched: string[] = [];
+
+  const targets = CSP_CONFIG_FILES.filter((f) => files.includes(f));
+  if (targets.length === 0) return patched;
+
+  await Promise.all(
+    targets.map(async (configFile) => {
+      try {
+        const res = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/contents/${configFile}`, { headers });
+        if (!res.ok) return;
+        const file = await res.json();
+        if (!file.content) return;
+        const content = Buffer.from(file.content, 'base64').toString('utf-8');
+
+        const patchedContent = await patchCspInFile(content, configFile, appUrl);
+        if (!patchedContent) return;
+
+        const putRes = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/contents/${configFile}`, {
+          method: 'PUT',
+          headers,
+          body: JSON.stringify({
+            message: `fix: allow chatbot widget in CSP`,
+            content: Buffer.from(patchedContent).toString('base64'),
+            sha: file.sha,
+          }),
+        });
+        if (putRes.ok) {
+          patched.push(configFile);
+          console.log(`[csp] patched ${configFile}`);
+        }
+      } catch (e) {
+        console.error(`[csp] error patching ${configFile}:`, e);
+      }
+    })
+  );
+
+  return patched;
 }
 
 function makeHeaders(token: string) {

@@ -2,6 +2,34 @@ import Anthropic from '@anthropic-ai/sdk';
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
+export async function patchCspInFile(content: string, filename: string, proxyDomain: string): Promise<string | null> {
+  const msg = await client.messages.create({
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 4096,
+    messages: [{
+      role: 'user',
+      content: `You are analyzing a web project configuration file for Content-Security-Policy (CSP) headers.
+
+File: ${filename}
+Content:
+\`\`\`
+${content}
+\`\`\`
+
+Does this file define a Content-Security-Policy header?
+
+If YES: Return the COMPLETE updated file with "${proxyDomain}" added to BOTH script-src and connect-src directives. Only add it if not already present.
+If NO: Return exactly: NO_CSP
+
+Return ONLY the file content or NO_CSP. No markdown fences, no explanation. Preserve all existing formatting exactly.`,
+    }],
+  });
+
+  const result = msg.content[0].type === 'text' ? msg.content[0].text.trim() : '';
+  if (!result || result === 'NO_CSP') return null;
+  return result;
+}
+
 export async function generateSystemPrompt(input: string): Promise<string> {
   const msg = await client.messages.create({
     model: 'claude-sonnet-4-6',
