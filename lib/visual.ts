@@ -118,7 +118,7 @@ async function fetchJinaText(url: string): Promise<string> {
     }
     const text = await res.text();
     console.log(`[jina] ok for ${url}, length=${text.length}`);
-    return text.slice(0, 10000);
+    return text.slice(0, 20000);
   } catch (e) {
     console.error('[jina] error:', e);
     return '';
@@ -168,7 +168,16 @@ export async function analyzeWebsite(url: string): Promise<VisualAnalysis> {
       .map((u, i) => `Página ${i + 1}: ${u}`)
       .join('\n');
 
-    const contactBlock = contactInfo ? `\nCONTACTO DETECTADO EN LINKS (incluye esto en businessInfo):\n${contactInfo}` : '';
+    // Also extract Spanish phone numbers visible in Jina text (e.g. "635 76 59 41")
+    const phoneMatches = jinaText.match(/(?:\+?34[\s-]?)?(?:6\d{2}|7[0-9]\d)[\s-]?\d{2}[\s-]?\d{2}[\s-]?\d{2}/g);
+    if (phoneMatches) {
+      const uniquePhones = [...new Set(phoneMatches.map(p => p.trim()))].join(', ');
+      if (uniquePhones && !contactInfo.includes(uniquePhones.slice(0, 6))) {
+        contactInfo = contactInfo ? `${contactInfo}\nTeléfono: ${uniquePhones}` : `Teléfono: ${uniquePhones}`;
+      }
+    }
+
+    const contactBlock = contactInfo ? `\nCONTACTO DETECTADO (incluye esto obligatoriamente en businessInfo):\n${contactInfo}` : '';
 
     const textPrompt: Anthropic.TextBlockParam = {
       type: 'text',

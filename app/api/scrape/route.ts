@@ -159,6 +159,54 @@ function mostSaturated(hexList: string[]): string | null {
   return best && best.sat > 0.04 ? best.hex : null;
 }
 
+// Fetches linked CSS bundles (Vite/React apps) and extracts brand colors from compiled styles.
+// Runs in parallel with visual analysis and serves as reliable fallback for SPAs.
+async function extractColorsFromStylesheets(url: string): Promise<{ primary: string; secondary: string } | null> {
+  try {
+    const htmlRes = await fetch(url, { headers: { 'User-Agent': BOT_UA }, signal: AbortSignal.timeout(6_000) });
+    if (!htmlRes.ok) return null;
+    const html = await htmlRes.text();
+
+    // Try direct HTML extraction first (meta theme-color, inline styles)
+    const direct = extractColors(html);
+    if (direct) { console.log('[css-colors] found in HTML:', direct.primary); return direct; }
+
+    // Find linked CSS files
+    const cssUrls: string[] = [];
+    for (const m of html.matchAll(/<link[^>]+href="([^"]+\.css[^"]*)"[^>]*/gi)) {
+      try { cssUrls.push(new URL(m[1], url).href); } catch { /* skip */ }
+    }
+    if (cssUrls.length === 0) {
+      const allHex = [...html.matchAll(/#([0-9a-fA-F]{6})\b/g)].map(m => '#' + m[1].toLowerCase());
+      const p = mostSaturated([...new Set(allHex)]);
+      return p ? { primary: p, secondary: darken(p) } : null;
+    }
+
+    // Fetch up to 2 CSS files (main bundle is first)
+    let cssText = '';
+    for (const cssUrl of cssUrls.slice(0, 2)) {
+      try {
+        const r = await fetch(cssUrl, { headers: { 'User-Agent': BOT_UA }, signal: AbortSignal.timeout(5_000) });
+        if (r.ok) cssText += (await r.text()).slice(0, 120000);
+        if (cssText.length > 120000) break;
+      } catch { /* skip */ }
+    }
+    if (!cssText) return null;
+
+    const fakeHtml = `<html><head><style>${cssText}</style></head><body></body></html>`;
+    const fromCss = extractColors(fakeHtml);
+    if (fromCss) { console.log('[css-colors] found in CSS bundle:', fromCss.primary); return fromCss; }
+
+    const allHex = [...cssText.matchAll(/#([0-9a-fA-F]{6})\b/g)].map(m => '#' + m[1].toLowerCase());
+    const p = mostSaturated([...new Set(allHex)]);
+    if (p) { console.log('[css-colors] most saturated in CSS:', p); return { primary: p, secondary: darken(p) }; }
+    return null;
+  } catch (e) {
+    console.error('[css-colors] error:', e);
+    return null;
+  }
+}
+
 export async function POST(request: NextRequest) {
   const user = await getSession();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -166,16 +214,22 @@ export async function POST(request: NextRequest) {
   const { url } = await request.json();
 
   try {
-    // PRIMARY: Screenshot(s) → Claude Sonnet → colors + style + business text
-    const visual = await analyzeWebsite(url);
+    // Run visual analysis and CSS color extraction in parallel
+    const [visual, cssColors] = await Promise.all([
+      analyzeWebsite(url),
+      extractColorsFromStylesheets(url),
+    ]);
+
+    // Priority: screenshot-detected colors > CSS bundle colors > undefined (don't overwrite)
+    const screenshotHasColors = visual.primaryColor !== '#1e293b' && visual.secondaryColor !== '#334155';
+    const primaryColor = screenshotHasColors ? visual.primaryColor : cssColors?.primary;
+    const secondaryColor = screenshotHasColors ? visual.secondaryColor : cssColors?.secondary;
 
     if (visual.businessInfo) {
-      // Only return colors if they are real (not fallback defaults — avoids overwriting with dark)
-      const hasRealColors = visual.primaryColor !== '#1e293b' && visual.secondaryColor !== '#334155';
       return NextResponse.json({
         text: visual.businessInfo,
-        primaryColor: hasRealColors ? visual.primaryColor : undefined,
-        secondaryColor: hasRealColors ? visual.secondaryColor : undefined,
+        primaryColor,
+        secondaryColor,
         widgetStyle: visual.widgetStyle,
       });
     }
@@ -202,22 +256,6 @@ export async function POST(request: NextRequest) {
       .filter((r): r is PromiseFulfilledResult<string> => r.status === 'fulfilled')
       .map(r => r.value);
     const textContent = [jsonLd, rawText, ...subTexts].filter(Boolean).join('\n\n').slice(0, 20000);
-
-    // Use colors from visual (even without businessInfo they're valid) or fall back to CSS
-    let primaryColor = visual.primaryColor !== '#1e293b' ? visual.primaryColor : '';
-    let secondaryColor = visual.secondaryColor !== '#334155' ? visual.secondaryColor : '';
-
-    if (!primaryColor) {
-      let colors = extractColors(html);
-      if (!colors) {
-        const allHex = [...html.matchAll(/#([0-9a-fA-F]{6})\b/g)].map(m => '#' + m[1].toLowerCase());
-        const primary = mostSaturated([...new Set(allHex)]);
-        if (primary) colors = { primary, secondary: darken(primary) };
-      }
-      colors ??= { primary: '#1e293b', secondary: '#334155' };
-      primaryColor = colors.primary;
-      secondaryColor = colors.secondary;
-    }
 
     return NextResponse.json({
       text: textContent,
