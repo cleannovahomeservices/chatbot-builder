@@ -1,5 +1,7 @@
 (function () {
   if (typeof window === 'undefined') return;
+  if (window.__chatbotWidgetLoaded) return;
+  window.__chatbotWidgetLoaded = true;
   var config = window.ChatbotConfig || {};
   var webhookUrl = config.webhookUrl;
   var botName = config.name || 'Asistente';

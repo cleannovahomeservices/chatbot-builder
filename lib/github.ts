@@ -219,18 +219,16 @@ export async function removeWidget(
 
     if (!content.includes(`<!-- Chatbot: ${chatbotName} -->`) && !content.includes(`{/* Chatbot: ${chatbotName} */}`)) continue;
 
-    // Remove HTML-style snippet: <!-- Chatbot: NAME --> + 2 script lines
+    // Remove ALL HTML-style snippets: <!-- Chatbot: NAME --> + 2 script lines
     let updated = content.replace(
-      new RegExp(`\\n[ \\t]*<!-- Chatbot: ${escaped} -->[\\s\\S]*?widget\\.js" async defer><\\/script>`, 'm'),
+      new RegExp(`\\n?[ \\t]*<!-- Chatbot: ${escaped} -->[\\s\\S]*?widget\\.js" async defer><\\/script>`, 'g'),
       ''
     );
-    // Remove JSX-style snippet: {/* Chatbot: NAME */} + 2 script tags
-    if (updated === content) {
-      updated = content.replace(
-        new RegExp(`\\n[ \\t]*\\{/\\* Chatbot: ${escaped} \\*/\\}[\\s\\S]*?widget\\.js" async defer />[ \\t]*`, 'm'),
-        ''
-      );
-    }
+    // Remove ALL JSX-style snippets: {/* Chatbot: NAME */} + 2 script tags
+    updated = updated.replace(
+      new RegExp(`\\n?[ \\t]*\\{/\\* Chatbot: ${escaped} \\*/\\}[\\s\\S]*?widget\\.js" async defer />[ \\t]*`, 'g'),
+      ''
+    );
     if (updated === content) continue;
 
     const putRes = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/contents/${filePath}`, {
@@ -417,7 +415,14 @@ async function tryInjectIntoMarkupFile(
 
   const file = await res.json();
   if (!file.content) return { ok: false, error: 'contenido vacío (archivo demasiado grande)' };
-  const content = Buffer.from(file.content, 'base64').toString('utf-8');
+  const raw = Buffer.from(file.content, 'base64').toString('utf-8');
+
+  // Remove ALL existing injections for this chatbot before re-injecting
+  const escaped = chatbotName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const content = raw.replace(
+    new RegExp(`\\n?[ \\t]*<!-- Chatbot: ${escaped} -->[\\s\\S]*?widget\\.js" async defer><\\/script>`, 'g'),
+    ''
+  );
 
   const configJson = `{webhookUrl:"${webhookUrl}",name:"${chatbotName}",primaryColor:"${primaryColor}",secondaryColor:"${secondaryColor}"}`;
   const snippet = `\n  <!-- Chatbot: ${chatbotName} -->\n  <script>window.ChatbotConfig=${configJson};</script>\n  <script src="${appUrl}/widget.js" async defer></script>`;
@@ -449,16 +454,24 @@ async function tryInjectIntoNextLayout(
 
   const file = await res.json();
   if (!file.content) return { ok: false, error: 'contenido vacío (archivo demasiado grande)' };
-  const content = Buffer.from(file.content, 'base64').toString('utf-8');
-
-  const marker = content.includes('{children}') ? '{children}' : content.includes('{ children }') ? '{ children }' : null;
-  if (!marker) return { ok: false, error: 'no se encontró {children} en el layout' };
-  const idx = content.indexOf(marker);
+  const raw = Buffer.from(file.content, 'base64').toString('utf-8');
 
   const safeUrl = webhookUrl.replace(/[`"\\]/g, '');
   const safeName = chatbotName.replace(/[`"\\]/g, '');
   const safePrimary = primaryColor.replace(/[`"\\]/g, '');
   const safeSecondary = secondaryColor.replace(/[`"\\]/g, '');
+
+  // Remove ALL existing injections for this chatbot before re-injecting
+  const escapedName = safeName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const content = raw.replace(
+    new RegExp(`\\n?[ \\t]*\\{/\\* Chatbot: ${escapedName} \\*/\\}[\\s\\S]*?widget\\.js" async defer />[ \\t]*`, 'g'),
+    ''
+  );
+
+  const marker = content.includes('{children}') ? '{children}' : content.includes('{ children }') ? '{ children }' : null;
+  if (!marker) return { ok: false, error: 'no se encontró {children} en el layout' };
+  const idx = content.indexOf(marker);
+
   const configJson = `{webhookUrl:"${safeUrl}",name:"${safeName}",primaryColor:"${safePrimary}",secondaryColor:"${safeSecondary}"}`;
   const snippet = `\n      {/* Chatbot: ${safeName} */}\n      <script dangerouslySetInnerHTML={{__html:\`window.ChatbotConfig=${configJson};\`}} />\n      <script src="${appUrl}/widget.js" async defer />\n      `;
   const updated = content.slice(0, idx) + snippet + content.slice(idx);
