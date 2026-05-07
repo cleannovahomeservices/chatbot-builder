@@ -67,7 +67,7 @@ function extractSubPageLinks(html: string, baseUrl: string): string[] {
       }
     } catch { /* skip */ }
   }
-  return links.slice(0, 2);
+  return links.slice(0, 4);
 }
 
 async function takeScreenshot(url: string): Promise<string | null> {
@@ -81,13 +81,13 @@ async function takeScreenshot(url: string): Promise<string | null> {
     ssUrl.searchParams.set('viewport_width', '1280');
     ssUrl.searchParams.set('viewport_height', '900');
     ssUrl.searchParams.set('full_page', 'true');
-    ssUrl.searchParams.set('image_quality', '72');
+    ssUrl.searchParams.set('image_quality', '85');
     ssUrl.searchParams.set('block_ads', 'true');
     ssUrl.searchParams.set('block_cookie_banners', 'true');
-    ssUrl.searchParams.set('timeout', '30');
-    ssUrl.searchParams.set('delay', '4000');
+    ssUrl.searchParams.set('timeout', '45');
+    ssUrl.searchParams.set('delay', '7000');
 
-    const res = await fetch(ssUrl.toString(), { signal: AbortSignal.timeout(40_000) });
+    const res = await fetch(ssUrl.toString(), { signal: AbortSignal.timeout(65_000) });
     if (!res.ok) {
       const errBody = await res.text().catch(() => '');
       console.error('[screenshot] failed:', res.status, errBody.slice(0, 200));
@@ -102,7 +102,7 @@ async function takeScreenshot(url: string): Promise<string | null> {
   }
 }
 
-// Jina AI Reader renders JavaScript pages fully — handles SPAs, Replit sleeping apps, etc.
+// Jina AI Reader renders JavaScript pages fully — backup text source for contact data
 async function fetchJinaText(url: string): Promise<string> {
   try {
     const res = await fetch(`https://r.jina.ai/${url}`, {
@@ -110,7 +110,7 @@ async function fetchJinaText(url: string): Promise<string> {
         'Accept': 'text/plain',
         'X-No-Cache': 'true',
       },
-      signal: AbortSignal.timeout(25_000),
+      signal: AbortSignal.timeout(30_000),
     });
     if (!res.ok) {
       console.error('[jina] failed:', res.status);
@@ -118,7 +118,7 @@ async function fetchJinaText(url: string): Promise<string> {
     }
     const text = await res.text();
     console.log(`[jina] ok for ${url}, length=${text.length}`);
-    return text.slice(0, 20000);
+    return text.slice(0, 25000);
   } catch (e) {
     console.error('[jina] error:', e);
     return '';
@@ -140,24 +140,50 @@ export async function analyzeWebsite(url: string): Promise<VisualAnalysis> {
       const html = await htmlRes.text();
       subPageLinks.push(...extractSubPageLinks(html, url));
       contactInfo = extractContactLinks(html);
-      if (contactInfo) console.log('[visual] contact links found:', contactInfo);
+      if (contactInfo) console.log('[visual] contact links found in HTML:', contactInfo);
     } catch { /* ignore — screenshots will still work */ }
 
-    // Step 2: Screenshots + Jina text in parallel (Jina finishes inside the screenshot window)
-    const urlsToCapture = [url, ...subPageLinks.slice(0, 2)];
+    // Step 2: Screenshots (home + up to 3 subpages) + Jina text in parallel
+    const urlsToCapture = [url, ...subPageLinks.slice(0, 3)];
     const [screenshots, jinaText] = await Promise.all([
       Promise.all(urlsToCapture.map(takeScreenshot)),
       fetchJinaText(url),
     ]);
     const validShots = screenshots.filter((s): s is string => s !== null);
-    console.log(`[visual] shots=${validShots.length}, jina=${jinaText.length} chars`);
+    console.log(`[visual] shots=${validShots.length}/${urlsToCapture.length}, jina=${jinaText.length} chars`);
 
     if (validShots.length === 0 && !jinaText) {
       console.error('[visual] no data from screenshots or jina');
       return FALLBACK;
     }
 
-    // Step 3: Build Claude message with all available data
+    // Step 3: Extract contact info from Jina text as safety net
+    // (covers CSS pseudo-element phones invisible to screenshot OCR)
+    for (const m of jinaText.matchAll(/wa\.me\/(\d+)/gi)) {
+      const num = '+' + m[1];
+      if (!contactInfo.includes(m[1].slice(-9))) {
+        contactInfo = contactInfo ? `${contactInfo}\nWhatsApp: ${num}` : `WhatsApp: ${num}`;
+        console.log('[visual] wa.me found in jina:', num);
+      }
+    }
+    for (const m of jinaText.matchAll(/\(tel:([+\d\s\-().]+?)\)/gi)) {
+      const num = m[1].trim();
+      if (num.length >= 9 && !contactInfo.includes(num.replace(/\D/g, '').slice(-9))) {
+        contactInfo = contactInfo ? `${contactInfo}\nTeléfono: ${num}` : `Teléfono: ${num}`;
+        console.log('[visual] tel: found in jina:', num);
+      }
+    }
+    const phoneMatches = jinaText.match(/(?:\+?34[\s-]?)?(?:6\d{2}|7[0-9]\d)[\s-]?\d{2}[\s-]?\d{2}[\s-]?\d{2}/g);
+    if (phoneMatches) {
+      for (const phone of [...new Set(phoneMatches.map(p => p.trim()))]) {
+        const digits = phone.replace(/\D/g, '');
+        if (!contactInfo.includes(digits.slice(-9))) {
+          contactInfo = contactInfo ? `${contactInfo}\nTeléfono: ${phone}` : `Teléfono: ${phone}`;
+        }
+      }
+    }
+
+    // Step 4: Build Claude message — screenshots are the PRIMARY source
     const imageBlocks: Anthropic.ImageBlockParam[] = validShots.map((data) => ({
       type: 'image' as const,
       source: { type: 'base64' as const, media_type: 'image/jpeg' as const, data },
@@ -168,43 +194,17 @@ export async function analyzeWebsite(url: string): Promise<VisualAnalysis> {
       .map((u, i) => `Página ${i + 1}: ${u}`)
       .join('\n');
 
-    // Extract wa.me links from Jina markdown (e.g. [WhatsApp](https://wa.me/34635765941))
-    for (const m of jinaText.matchAll(/wa\.me\/(\d+)/gi)) {
-      const num = '+' + m[1];
-      if (!contactInfo.includes(m[1].slice(-9))) {
-        contactInfo = contactInfo ? `${contactInfo}\nWhatsApp: ${num}` : `WhatsApp: ${num}`;
-        console.log('[visual] wa.me found in jina:', num);
-      }
-    }
-
-    // Extract tel: links from Jina markdown (e.g. [Llamar](tel:+34635765941))
-    for (const m of jinaText.matchAll(/\(tel:([+\d\s\-().]+?)\)/gi)) {
-      const num = m[1].trim();
-      if (num.length >= 9 && !contactInfo.includes(num.replace(/\D/g, '').slice(-9))) {
-        contactInfo = contactInfo ? `${contactInfo}\nTeléfono: ${num}` : `Teléfono: ${num}`;
-        console.log('[visual] tel: found in jina:', num);
-      }
-    }
-
-    // Also extract Spanish phone numbers visible as plain text in Jina (e.g. "635 76 59 41")
-    const phoneMatches = jinaText.match(/(?:\+?34[\s-]?)?(?:6\d{2}|7[0-9]\d)[\s-]?\d{2}[\s-]?\d{2}[\s-]?\d{2}/g);
-    if (phoneMatches) {
-      const uniquePhones = [...new Set(phoneMatches.map(p => p.trim()))];
-      for (const phone of uniquePhones) {
-        const digits = phone.replace(/\D/g, '');
-        if (!contactInfo.includes(digits.slice(-9))) {
-          contactInfo = contactInfo ? `${contactInfo}\nTeléfono: ${phone}` : `Teléfono: ${phone}`;
-        }
-      }
-    }
-
-    const contactBlock = contactInfo ? `\nCONTACTO DETECTADO (incluye esto obligatoriamente en businessInfo):\n${contactInfo}` : '';
+    const contactBlock = contactInfo
+      ? `\nCONTACTO DETECTADO (incluye esto EXACTAMENTE en businessInfo, no lo omitas):\n${contactInfo}`
+      : '';
 
     const textPrompt: Anthropic.TextBlockParam = {
       type: 'text',
-      text: `Analiza la web de un negocio y extrae la información solicitada.
-${validShots.length > 0 ? `\nCapturas de pantalla (${validShots.length}):\n${pageLabels}` : ''}
-${jinaText ? `\nTEXTO COMPLETO EXTRAÍDO DE LA WEB:\n---\n${jinaText}\n---` : ''}${contactBlock}
+      text: `Analiza las capturas de pantalla de la web de un negocio y extrae toda la información.
+
+Capturas disponibles (${validShots.length}):
+${pageLabels}
+${jinaText ? `\nTEXTO ADICIONAL EXTRAÍDO DE LA WEB (usa como apoyo si algo no se ve claro en las imágenes):\n---\n${jinaText.slice(0, 8000)}\n---` : ''}${contactBlock}
 
 Devuelve SOLO un objeto JSON válido sin explicación adicional ni markdown:
 
@@ -215,15 +215,34 @@ Devuelve SOLO un objeto JSON válido sin explicación adicional ni markdown:
   "businessInfo": "..."
 }
 
-INSTRUCCIONES PARA CADA CAMPO:
+INSTRUCCIONES:
 
-primaryColor: ${validShots.length > 0 ? 'Analiza VISUALMENTE las imágenes — color principal de marca en botones, header, logo, CTAs. No negro puro ni blanco puro.' : '"#1e293b"'}
-secondaryColor: ${validShots.length > 0 ? 'Analiza VISUALMENTE las imágenes — color complementario, diferente tono del primary.' : '"#334155"'}
-widgetStyle: ${validShots.length > 0 ? 'Analiza VISUALMENTE las imágenes — elige UNO exacto según el diseño real del sitio:\n  bubble (startup/colorida/gradientes — uso general)\n  minimal (blanco/limpio/mucho espacio)\n  rounded (lifestyle/bienestar/bordes redondeados)\n  dark (SOLO si la web es claramente tech, gaming o agencia digital oscura — NO para bares, restaurantes, barberías, tiendas físicas)\n  neon (SOLO si la web tiene colores neón reales, gaming)\n  corporate (empresa b2b, finanzas, consultoría)\n  soft (belleza, salud, spa, pastel)\n  floating (premium, lujo, moda)\n  compact (e-commerce, noticias, mucho contenido)\n  retro (vintage, tipografía bold)\n  IMPORTANTE: Si las capturas parecen estar cargando, en blanco o son mayoritariamente negras, elige "bubble". No confundas una pantalla de carga negra con un diseño dark.' : '"bubble"'}
-businessInfo: ${jinaText
-  ? `Usa el TEXTO EXTRAÍDO como base principal. Además, examina VISUALMENTE las capturas de pantalla para capturar cualquier dato de contacto (número de teléfono, WhatsApp, email) que aparezca visible en las imágenes pero que pueda faltar en el texto. Incluye LITERALMENTE: nombre del negocio, dirección completa, teléfono/WhatsApp/email (búscalo tanto en el texto como en las imágenes), TODOS los servicios con precios EXACTOS, horarios por día de la semana, promociones.`
-  : 'Extrae TODO el texto de negocio visible en las imágenes: nombre, dirección, teléfonos, servicios con precios exactos, horarios por día.'
-}`,
+primaryColor: Mira las imágenes — ¿qué color de marca aparece en el header, botones principales, logo o CTAs? Ese es el primaryColor. Devuelve el hex exacto. Evita negro puro (#000000) o blanco puro (#ffffff).
+
+secondaryColor: Color complementario visible en la web — diferente tono o matiz del primario. Si no hay un segundo color claro, oscurece el primario 20 puntos.
+
+widgetStyle: Elige UNO basándote en el estilo visual de las imágenes:
+  bubble — startup moderna, gradientes, colores vivos (opción por defecto)
+  minimal — diseño muy limpio, mucho espacio en blanco, tipografía fina
+  rounded — lifestyle, bienestar, bordes redondeados, acogedor
+  dark — SOLO si la web entera es oscura: tech, gaming, agencia digital nocturna. NO para bares, barberías, tiendas físicas
+  neon — SOLO si hay colores neón reales y gaming
+  corporate — empresa B2B, finanzas, consultoría, aspecto serio y formal
+  soft — belleza, spa, salud, colores pastel
+  floating — lujo, moda, premium, mucho espacio
+  compact — e-commerce, muchos productos/artículos
+  retro — vintage, tipografía bold, nostálgico
+  IMPORTANTE: si el screenshot parece pantalla de carga negra, elige bubble.
+
+businessInfo: Extrae TODA la información del negocio visible en las imágenes y el texto. Incluye sin omitir nada:
+  - Nombre exacto del negocio
+  - Dirección completa (calle, número, ciudad, barrio)
+  - Teléfono, WhatsApp y/o email (busca en imágenes Y en el contactBlock de arriba)
+  - TODOS los servicios con sus precios EXACTOS tal como aparecen
+  - Horarios de apertura por día de la semana
+  - Promociones o descuentos actuales
+  - Cualquier otro dato relevante para el cliente
+  Si un dato no aparece, simplemente no lo incluyas — nunca inventes información.`,
     };
 
     const content: (Anthropic.ImageBlockParam | Anthropic.TextBlockParam)[] =
@@ -231,7 +250,7 @@ businessInfo: ${jinaText
 
     const msg = await client.messages.create({
       model: 'claude-sonnet-4-6',
-      max_tokens: 1024,
+      max_tokens: 4000,
       messages: [{ role: 'user', content }],
     });
 
