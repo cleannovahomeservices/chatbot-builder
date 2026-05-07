@@ -543,11 +543,21 @@ export function CreateWizard({
 
             {/* Case 1: widget injected directly */}
             {createdChatbot?.widget_injected && (
-              <p className="text-white/50 mb-6">
-                Widget inyectado en{" "}
-                <code className="bg-white/10 px-1 rounded text-xs">{injectFile}</code>.
-                Tu chatbot está activo.
-              </p>
+              <div className="mb-6">
+                <p className="text-white/50 mb-3">
+                  Widget inyectado en{" "}
+                  <code className="bg-white/10 px-1 rounded text-xs">{injectFile}</code>.
+                  Tu chatbot está activo.
+                </p>
+                <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4 text-left">
+                  <p className="text-xs font-semibold text-amber-300 mb-1">¿Tu web corre en Replit, un servidor propio o un VPS?</p>
+                  <p className="text-xs text-white/50">
+                    Hemos hecho el commit en GitHub, pero tu servidor sirve los archivos desde su propio disco.
+                    Necesitas hacer un <strong className="text-white/80">Restart</strong> (o <code className="bg-white/10 px-1 rounded">git pull</code> + reinicio)
+                    en tu plataforma para que el widget aparezca en la web.
+                  </p>
+                </div>
+              </div>
             )}
 
             {/* Case 2: PR created — user just needs to merge */}
