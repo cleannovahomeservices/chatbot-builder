@@ -159,6 +159,35 @@ function mostSaturated(hexList: string[]): string | null {
   return best && best.sat > 0.04 ? best.hex : null;
 }
 
+// Converts HSL values (as used in ShadCN/Tailwind CSS vars) to hex
+function hslToHex(h: number, s: number, l: number): string {
+  s /= 100; l /= 100;
+  const a = s * Math.min(l, 1 - l);
+  const f = (n: number) => {
+    const k = (n + h / 30) % 12;
+    return Math.round(255 * (l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1)))
+      .toString(16).padStart(2, '0');
+  };
+  return `#${f(0)}${f(8)}${f(4)}`;
+}
+
+// Parses ShadCN / Tailwind CSS v4 :root { --primary: H S% L%; } patterns
+function extractHslCssVarColors(cssText: string): { primary: string; secondary: string } | null {
+  const rootMatch = cssText.match(/:root\s*\{([^}]+)\}/);
+  if (!rootMatch) return null;
+  const root = rootMatch[1];
+  const getVar = (name: string): string | null => {
+    const m = root.match(new RegExp(`--${name}:\\s*(\\d+\\.?\\d*)\\s+(\\d+\\.?\\d*)%\\s+(\\d+\\.?\\d*)%`));
+    if (!m) return null;
+    const hex = hslToHex(parseFloat(m[1]), parseFloat(m[2]), parseFloat(m[3]));
+    return isNeutral(hex) ? null : hex;
+  };
+  const primary = getVar('primary');
+  if (!primary) return null;
+  const secondary = getVar('secondary') || getVar('accent') || darken(primary, 20);
+  return { primary, secondary: secondary && !isNeutral(secondary) ? secondary : darken(primary, 20) };
+}
+
 // Fetches linked CSS bundles (Vite/React apps) and extracts brand colors from compiled styles.
 // Runs in parallel with visual analysis and serves as reliable fallback for SPAs.
 async function extractColorsFromStylesheets(url: string): Promise<{ primary: string; secondary: string } | null> {
@@ -192,6 +221,10 @@ async function extractColorsFromStylesheets(url: string): Promise<{ primary: str
       } catch { /* skip */ }
     }
     if (!cssText) return null;
+
+    // HSL CSS variable parsing (ShadCN UI / Tailwind CSS v4: --primary: H S% L%)
+    const hslColors = extractHslCssVarColors(cssText);
+    if (hslColors) { console.log('[css-colors] HSL vars:', hslColors.primary, hslColors.secondary); return hslColors; }
 
     const fakeHtml = `<html><head><style>${cssText}</style></head><body></body></html>`;
     const fromCss = extractColors(fakeHtml);
