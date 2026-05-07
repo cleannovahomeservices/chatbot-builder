@@ -1,6 +1,8 @@
 import Anthropic from '@anthropic-ai/sdk';
+import OpenAI from 'openai';
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 export type WidgetStyle =
   | 'bubble' | 'minimal' | 'rounded' | 'dark'
@@ -136,7 +138,7 @@ async function fetchJinaText(url: string): Promise<string> {
 
 // Original simple color analysis — Claude Haiku, 256 tokens, focused prompt
 async function detectColors(screenshot: string): Promise<{ primaryColor: string; secondaryColor: string; widgetStyle: WidgetStyle }> {
-  const msg = await client.messages.create({
+  const msg = await anthropic.messages.create({
     model: 'claude-haiku-4-5-20251001',
     max_tokens: 256,
     messages: [{
@@ -183,54 +185,55 @@ Para widgetStyle elige UNO de estos valores exactos:
   };
 }
 
-// Content extraction — Claude Sonnet, 4000 tokens, businessInfo only
+// Content extraction — GPT-4o Vision, better OCR than Claude for text in images
 async function extractBusinessInfo(
   screenshots: string[],
   jinaText: string,
   contactInfo: string,
   pageLabels: string,
 ): Promise<string> {
-  const imageBlocks: Anthropic.ImageBlockParam[] = screenshots.map((data) => ({
-    type: 'image' as const,
-    source: { type: 'base64' as const, media_type: 'image/jpeg' as const, data },
-  }));
-
   const contactBlock = contactInfo
-    ? `\nCONTACTO DETECTADO — incluye esto exactamente:\n${contactInfo}`
+    ? `\nCONTACTO DETECTADO — incluye esto exactamente en businessInfo:\n${contactInfo}`
     : '';
 
-  const textBlock: Anthropic.TextBlockParam = {
+  const imageMessages: OpenAI.Chat.ChatCompletionContentPart[] = screenshots.map((data) => ({
+    type: 'image_url' as const,
+    image_url: { url: `data:image/jpeg;base64,${data}`, detail: 'high' as const },
+  }));
+
+  const textPart: OpenAI.Chat.ChatCompletionContentPart = {
     type: 'text',
-    text: `Eres un extractor de información de negocios. Analiza las capturas de pantalla${jinaText ? ' y el texto extraído' : ''} de esta web y devuelve SOLO un JSON con businessInfo.
+    text: `Eres un extractor de información de negocios. Analiza CUIDADOSAMENTE las capturas de pantalla de esta web.
 
 Capturas (${screenshots.length}):
 ${pageLabels}
-${jinaText ? `\nTEXTO WEB:\n---\n${jinaText.slice(0, 12000)}\n---` : ''}${contactBlock}
+${jinaText ? `\nTEXTO WEB EXTRAÍDO:\n---\n${jinaText.slice(0, 12000)}\n---` : ''}${contactBlock}
 
-Devuelve SOLO este JSON sin markdown:
+Devuelve SOLO este JSON sin markdown ni explicación:
 {"businessInfo":"..."}
 
-businessInfo debe incluir TODO lo que encuentres:
+businessInfo debe contener TODO lo que veas en las imágenes y el texto:
 - Nombre exacto del negocio
 - Dirección completa
-- Teléfono y/o WhatsApp: LEE CON CUIDADO las imágenes buscando cualquier número de teléfono visible (formato español: 6XX XXX XXX o +34...). También está en el contactBlock si aparece arriba.
-- Email si lo hay
-- Todos los servicios con precios EXACTOS
-- Horarios por día de la semana
-- Promociones vigentes
-No inventes nada. No omitas nada que esté en las fuentes.`,
+- Teléfono y/o WhatsApp: LEE MUY CUIDADOSAMENTE cada número de teléfono visible en las imágenes. Los números de teléfono en España tienen formato 6XX XXX XXX o +34 6XX XXX XXX. También revisa el contactBlock si aparece arriba.
+- Email
+- TODOS los servicios con sus precios EXACTOS
+- Horarios de apertura por cada día de la semana
+- Promociones o descuentos
+No inventes nada. Extrae solo lo que está en las fuentes.`,
   };
 
-  const content: (Anthropic.ImageBlockParam | Anthropic.TextBlockParam)[] =
-    screenshots.length > 0 ? [...imageBlocks, textBlock] : [textBlock];
+  const content: OpenAI.Chat.ChatCompletionContentPart[] =
+    screenshots.length > 0 ? [...imageMessages, textPart] : [textPart];
 
-  const msg = await client.messages.create({
-    model: 'claude-sonnet-4-6',
+  const response = await openai.chat.completions.create({
+    model: 'gpt-4o',
     max_tokens: 4000,
     messages: [{ role: 'user', content }],
   });
 
-  const raw = msg.content[0].type === 'text' ? msg.content[0].text.trim() : '';
+  const raw = response.choices[0]?.message?.content?.trim() ?? '';
+  console.log(`[gpt4o-content] response length=${raw.length}`);
   const match = raw.match(/\{[\s\S]*\}/);
   if (!match) return '';
   try {
