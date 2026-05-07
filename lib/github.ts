@@ -80,7 +80,9 @@ export async function injectWidget(
   repo: string,
   webhookUrl: string,
   chatbotName: string,
-  appUrl: string
+  appUrl: string,
+  primaryColor = '#7c3aed',
+  secondaryColor = '#4338ca',
 ): Promise<InjectResult> {
   const headers = makeHeaders(token);
 
@@ -130,7 +132,7 @@ export async function injectWidget(
 
   const layout = files.find((f) => /^(src\/)?app\/layout\.[jt]sx?$/.test(f));
   if (layout) {
-    const result = await tryInjectIntoNextLayout(token, owner, repo, layout, webhookUrl, chatbotName, appUrl);
+    const result = await tryInjectIntoNextLayout(token, owner, repo, layout, webhookUrl, chatbotName, appUrl, primaryColor, secondaryColor);
     if (result.ok) injectResult = { injected: !result.prUrl, file: layout, prUrl: result.prUrl };
     else return { injected: false, reason: result.error };
   }
@@ -138,7 +140,7 @@ export async function injectWidget(
   if (!injectResult) {
     const document = files.find((f) => /^(src\/)?pages\/_document\.[jt]sx?$/.test(f));
     if (document) {
-      const result = await tryInjectIntoNextDocument(token, owner, repo, document, webhookUrl, chatbotName, appUrl);
+      const result = await tryInjectIntoNextDocument(token, owner, repo, document, webhookUrl, chatbotName, appUrl, primaryColor, secondaryColor);
       if (result.ok) injectResult = { injected: !result.prUrl, file: document, prUrl: result.prUrl };
       else return { injected: false, reason: result.error };
     }
@@ -151,7 +153,7 @@ export async function injectWidget(
       .slice(0, 5);
 
     for (const path of htmlFiles) {
-      const result = await tryInjectIntoMarkupFile(token, owner, repo, path, webhookUrl, chatbotName, appUrl);
+      const result = await tryInjectIntoMarkupFile(token, owner, repo, path, webhookUrl, chatbotName, appUrl, primaryColor, secondaryColor);
       if (result.ok) { injectResult = { injected: !result.prUrl, file: path, prUrl: result.prUrl }; break; }
     }
   }
@@ -168,7 +170,7 @@ export async function injectWidget(
       .slice(0, 5);
 
     for (const path of phpFiles) {
-      const result = await tryInjectIntoMarkupFile(token, owner, repo, path, webhookUrl, chatbotName, appUrl);
+      const result = await tryInjectIntoMarkupFile(token, owner, repo, path, webhookUrl, chatbotName, appUrl, primaryColor, secondaryColor);
       if (result.ok) { injectResult = { injected: !result.prUrl, file: path, prUrl: result.prUrl }; break; }
     }
 
@@ -405,7 +407,9 @@ async function tryInjectIntoMarkupFile(
   filePath: string,
   webhookUrl: string,
   chatbotName: string,
-  appUrl: string
+  appUrl: string,
+  primaryColor = '#7c3aed',
+  secondaryColor = '#4338ca',
 ): Promise<TryResult> {
   const headers = makeHeaders(token);
   const res = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/contents/${filePath}`, { headers });
@@ -415,18 +419,14 @@ async function tryInjectIntoMarkupFile(
   if (!file.content) return { ok: false, error: 'contenido vacío (archivo demasiado grande)' };
   const content = Buffer.from(file.content, 'base64').toString('utf-8');
 
-  const bodySnippet = `\n  <!-- Chatbot: ${chatbotName} -->\n  <script>window.ChatbotConfig={webhookUrl:"${webhookUrl}",name:"${chatbotName}"};</script>\n  <script src="${appUrl}/widget.js" async defer></script>`;
+  const configJson = `{webhookUrl:"${webhookUrl}",name:"${chatbotName}",primaryColor:"${primaryColor}",secondaryColor:"${secondaryColor}"}`;
+  const snippet = `\n  <!-- Chatbot: ${chatbotName} -->\n  <script>window.ChatbotConfig=${configJson};</script>\n  <script src="${appUrl}/widget.js" async defer></script>`;
 
   if (content.includes('</body>')) {
-    const updated = content.replace('</body>', `${bodySnippet}\n</body>`);
-    return putFileDirectOrPR(token, owner, repo, filePath, updated, file.sha, `Add ${chatbotName} chatbot widget`);
+    return putFileDirectOrPR(token, owner, repo, filePath, content.replace('</body>', `${snippet}\n</body>`), file.sha, `Add ${chatbotName} chatbot widget`);
   }
-
-  // Fallback: inject before </head> (e.g. WordPress header.php partials)
   if (content.includes('</head>')) {
-    const headSnippet = `\n  <!-- Chatbot: ${chatbotName} -->\n  <script>window.ChatbotConfig={webhookUrl:"${webhookUrl}",name:"${chatbotName}"};</script>\n  <script src="${appUrl}/widget.js" async defer></script>`;
-    const updated = content.replace('</head>', `${headSnippet}\n</head>`);
-    return putFileDirectOrPR(token, owner, repo, filePath, updated, file.sha, `Add ${chatbotName} chatbot widget`);
+    return putFileDirectOrPR(token, owner, repo, filePath, content.replace('</head>', `${snippet}\n</head>`), file.sha, `Add ${chatbotName} chatbot widget`);
   }
 
   return { ok: false, error: 'sin </body> ni </head>' };
@@ -439,7 +439,9 @@ async function tryInjectIntoNextLayout(
   filePath: string,
   webhookUrl: string,
   chatbotName: string,
-  appUrl: string
+  appUrl: string,
+  primaryColor = '#7c3aed',
+  secondaryColor = '#4338ca',
 ): Promise<TryResult> {
   const headers = makeHeaders(token);
   const res = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/contents/${filePath}`, { headers });
@@ -449,17 +451,16 @@ async function tryInjectIntoNextLayout(
   if (!file.content) return { ok: false, error: 'contenido vacío (archivo demasiado grande)' };
   const content = Buffer.from(file.content, 'base64').toString('utf-8');
 
-  const marker = content.includes('{children}')
-    ? '{children}'
-    : content.includes('{ children }')
-    ? '{ children }'
-    : null;
+  const marker = content.includes('{children}') ? '{children}' : content.includes('{ children }') ? '{ children }' : null;
   if (!marker) return { ok: false, error: 'no se encontró {children} en el layout' };
   const idx = content.indexOf(marker);
 
   const safeUrl = webhookUrl.replace(/[`"\\]/g, '');
   const safeName = chatbotName.replace(/[`"\\]/g, '');
-  const snippet = `\n      {/* Chatbot: ${safeName} */}\n      <script dangerouslySetInnerHTML={{__html:\`window.ChatbotConfig={webhookUrl:"${safeUrl}",name:"${safeName}"};\`}} />\n      <script src="${appUrl}/widget.js" async defer />\n      `;
+  const safePrimary = primaryColor.replace(/[`"\\]/g, '');
+  const safeSecondary = secondaryColor.replace(/[`"\\]/g, '');
+  const configJson = `{webhookUrl:"${safeUrl}",name:"${safeName}",primaryColor:"${safePrimary}",secondaryColor:"${safeSecondary}"}`;
+  const snippet = `\n      {/* Chatbot: ${safeName} */}\n      <script dangerouslySetInnerHTML={{__html:\`window.ChatbotConfig=${configJson};\`}} />\n      <script src="${appUrl}/widget.js" async defer />\n      `;
   const updated = content.slice(0, idx) + snippet + content.slice(idx);
 
   return putFileDirectOrPR(token, owner, repo, filePath, updated, file.sha, `Add ${safeName} chatbot widget`);
@@ -472,7 +473,9 @@ async function tryInjectIntoNextDocument(
   filePath: string,
   webhookUrl: string,
   chatbotName: string,
-  appUrl: string
+  appUrl: string,
+  primaryColor = '#7c3aed',
+  secondaryColor = '#4338ca',
 ): Promise<TryResult> {
   const headers = makeHeaders(token);
   const res = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/contents/${filePath}`, { headers });
@@ -484,7 +487,10 @@ async function tryInjectIntoNextDocument(
 
   const safeUrl = webhookUrl.replace(/[`"\\]/g, '');
   const safeName = chatbotName.replace(/[`"\\]/g, '');
-  const snippet = `\n        {/* Chatbot: ${safeName} */}\n        <script dangerouslySetInnerHTML={{__html:\`window.ChatbotConfig={webhookUrl:"${safeUrl}",name:"${safeName}"};\`}} />\n        <script src="${appUrl}/widget.js" async defer />\n        `;
+  const safePrimary = primaryColor.replace(/[`"\\]/g, '');
+  const safeSecondary = secondaryColor.replace(/[`"\\]/g, '');
+  const configJson = `{webhookUrl:"${safeUrl}",name:"${safeName}",primaryColor:"${safePrimary}",secondaryColor:"${safeSecondary}"}`;
+  const snippet = `\n        {/* Chatbot: ${safeName} */}\n        <script dangerouslySetInnerHTML={{__html:\`window.ChatbotConfig=${configJson};\`}} />\n        <script src="${appUrl}/widget.js" async defer />\n        `;
 
   let updated: string;
   if (content.includes('</Head>')) {

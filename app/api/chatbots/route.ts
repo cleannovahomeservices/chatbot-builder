@@ -9,11 +9,19 @@ export async function POST(request: NextRequest) {
   const user = await getSession();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { name, systemPrompt, githubRepo, vercelProjectId, vercelProjectName, vercelGithubRepo } =
-    await request.json();
+  const {
+    name, systemPrompt, githubRepo, vercelProjectId, vercelProjectName, vercelGithubRepo,
+    primaryColor, secondaryColor, sourceUrl,
+  } = await request.json();
+
   if (!name || !systemPrompt || (!githubRepo && !vercelProjectId)) {
     return NextResponse.json({ error: 'Faltan campos requeridos' }, { status: 400 });
   }
+
+  const colors = {
+    primary: (primaryColor as string | undefined) || '#7c3aed',
+    secondary: (secondaryColor as string | undefined) || '#4338ca',
+  };
 
   const appUrl = new URL(request.url).origin;
   const db = createAdminClient();
@@ -32,7 +40,10 @@ export async function POST(request: NextRequest) {
 
     if (targetRepo && user.github_access_token) {
       const [owner, repo] = targetRepo.split('/');
-      const result = await injectWidget(user.github_access_token, owner, repo, webhookUrl, name, appUrl);
+      const result = await injectWidget(
+        user.github_access_token, owner, repo, webhookUrl, name, appUrl,
+        colors.primary, colors.secondary,
+      );
       widgetInjected = result.injected;
       injectReason = result.reason;
       injectFile = result.file;
@@ -42,23 +53,27 @@ export async function POST(request: NextRequest) {
     }
 
     step = 'supabase';
-    const { data: chatbot, error } = await db
-      .from('chatbots')
-      .insert({
-        user_id: user.id,
-        name,
-        system_prompt: systemPrompt,
-        n8n_workflow_id: workflowId,
-        n8n_webhook_url: webhookUrl,
-        github_repo: targetRepo ?? vercelProjectName ?? null,
-        widget_injected: widgetInjected,
-        status: 'active',
-      })
-      .select()
-      .single();
+    const insertData: Record<string, unknown> = {
+      user_id: user.id,
+      name,
+      system_prompt: systemPrompt,
+      n8n_workflow_id: workflowId,
+      n8n_webhook_url: webhookUrl,
+      github_repo: targetRepo ?? vercelProjectName ?? null,
+      widget_injected: widgetInjected,
+      status: 'active',
+    };
 
-    if (error) throw error;
-    return NextResponse.json({ chatbot, injectFile, injectReason, injectPrUrl });
+    // Try to include color columns (they may not exist yet if migration hasn't run)
+    let result = await db.from('chatbots').insert({ ...insertData, primary_color: colors.primary, secondary_color: colors.secondary, source_url: sourceUrl || null }).select().single();
+
+    // If color columns don't exist yet, retry without them
+    if (result.error?.message?.includes('primary_color') || result.error?.message?.includes('secondary_color') || result.error?.message?.includes('source_url')) {
+      result = await db.from('chatbots').insert(insertData).select().single();
+    }
+
+    if (result.error) throw result.error;
+    return NextResponse.json({ chatbot: result.data, injectFile, injectReason, injectPrUrl });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`Create chatbot error [${step}]:`, msg);

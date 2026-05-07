@@ -88,6 +88,29 @@ export async function setWorkflowActive(workflowId: string, active: boolean): Pr
   await n8nRequest(`/api/v1/workflows/${workflowId}/${action}`, 'POST');
 }
 
+export async function updateWorkflowSystemPrompt(workflowId: string, systemPrompt: string): Promise<void> {
+  const workflow = await n8nRequest<{ nodes: { type: string; parameters?: Record<string, unknown> }[]; active?: boolean } & Record<string, unknown>>(
+    `/api/v1/workflows/${workflowId}`,
+    'GET'
+  );
+  if (!workflow) throw new Error('Workflow not found');
+
+  const nodes = workflow.nodes as { type: string; parameters?: { options?: { systemMessage?: string }; [key: string]: unknown } }[];
+  for (const node of nodes) {
+    if (node.type === '@n8n/n8n-nodes-langchain.agent') {
+      node.parameters ??= {};
+      node.parameters.options ??= {};
+      node.parameters.options.systemMessage = systemPrompt;
+    }
+  }
+
+  await n8nRequest(`/api/v1/workflows/${workflowId}`, 'PUT', workflow);
+
+  if (workflow.active) {
+    await n8nRequest(`/api/v1/workflows/${workflowId}/activate`, 'POST');
+  }
+}
+
 function buildWorkflow(name: string, systemPrompt: string) {
   return {
     name,

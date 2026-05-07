@@ -52,6 +52,8 @@ export function CreateWizard({
   const [injectFile, setInjectFile] = useState<string | undefined>();
   const [injectReason, setInjectReason] = useState<string | undefined>();
   const [injectPrUrl, setInjectPrUrl] = useState<string | undefined>();
+  const [extractedColors, setExtractedColors] = useState<{ primary: string; secondary: string } | null>(null);
+  const [sourceUrl, setSourceUrl] = useState<string>("");
 
   async function startGenerating() {
     if (!userInput.trim()) return;
@@ -66,6 +68,10 @@ export function CreateWizard({
         });
         const d = await r.json();
         if (d.text) input = d.text;
+        if (d.primaryColor && d.secondaryColor) {
+          setExtractedColors({ primary: d.primaryColor, secondary: d.secondaryColor });
+        }
+        setSourceUrl(userInput);
       }
       const r = await fetch("/api/generate-prompt", {
         method: "POST",
@@ -118,6 +124,8 @@ export function CreateWizard({
           });
           const d = await r.json();
           if (d.text) input = d.text;
+          if (d.primaryColor && d.secondaryColor) setExtractedColors({ primary: d.primaryColor, secondary: d.secondaryColor });
+          setSourceUrl(initialInput);
         }
         const r = await fetch("/api/generate-prompt", {
           method: "POST",
@@ -192,10 +200,11 @@ export function CreateWizard({
     if (!target || !chatbotName.trim()) return;
     setStep("creating");
     try {
+      const colorPayload = extractedColors ?? {};
       const body =
         deployMethod === "github"
-          ? { name: chatbotName, systemPrompt: prompt, githubRepo: selectedRepo }
-          : { name: chatbotName, systemPrompt: prompt, vercelProjectId: selectedVercelProject!.id, vercelProjectName: selectedVercelProject!.name, vercelGithubRepo: selectedVercelProject?.link ? `${selectedVercelProject.link.org}/${selectedVercelProject.link.repo}` : null };
+          ? { name: chatbotName, systemPrompt: prompt, githubRepo: selectedRepo, sourceUrl, ...colorPayload }
+          : { name: chatbotName, systemPrompt: prompt, vercelProjectId: selectedVercelProject!.id, vercelProjectName: selectedVercelProject!.name, vercelGithubRepo: selectedVercelProject?.link ? `${selectedVercelProject.link.org}/${selectedVercelProject.link.repo}` : null, sourceUrl, ...colorPayload };
 
       const res = await fetch("/api/chatbots", {
         method: "POST",
