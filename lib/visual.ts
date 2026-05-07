@@ -82,11 +82,34 @@ async function takeScreenshot(url: string): Promise<string | null> {
   }
 }
 
+// Jina AI Reader renders JavaScript pages fully — handles SPAs, Replit sleeping apps, etc.
+async function fetchJinaText(url: string): Promise<string> {
+  try {
+    const res = await fetch(`https://r.jina.ai/${url}`, {
+      headers: {
+        'Accept': 'text/plain',
+        'X-No-Cache': 'true',
+      },
+      signal: AbortSignal.timeout(25_000),
+    });
+    if (!res.ok) {
+      console.error('[jina] failed:', res.status);
+      return '';
+    }
+    const text = await res.text();
+    console.log(`[jina] ok for ${url}, length=${text.length}`);
+    return text.slice(0, 10000);
+  } catch (e) {
+    console.error('[jina] error:', e);
+    return '';
+  }
+}
+
 export async function analyzeWebsite(url: string): Promise<VisualAnalysis> {
   if (!process.env.SCREENSHOTONE_ACCESS_KEY) return FALLBACK;
 
   try {
-    // Fetch lightweight HTML just for sub-page link detection (no JS rendering needed)
+    // Step 1: Light HTML fetch for sub-page link detection
     const subPageLinks: string[] = [];
     try {
       const htmlRes = await fetch(url, {
@@ -97,17 +120,21 @@ export async function analyzeWebsite(url: string): Promise<VisualAnalysis> {
       subPageLinks.push(...extractSubPageLinks(html, url));
     } catch { /* ignore — screenshots will still work */ }
 
-    // Take screenshots in parallel: homepage (full page) + up to 2 sub-pages
+    // Step 2: Screenshots + Jina text in parallel (Jina finishes inside the screenshot window)
     const urlsToCapture = [url, ...subPageLinks.slice(0, 2)];
-    const screenshots = await Promise.all(urlsToCapture.map(takeScreenshot));
+    const [screenshots, jinaText] = await Promise.all([
+      Promise.all(urlsToCapture.map(takeScreenshot)),
+      fetchJinaText(url),
+    ]);
     const validShots = screenshots.filter((s): s is string => s !== null);
+    console.log(`[visual] shots=${validShots.length}, jina=${jinaText.length} chars`);
 
-    if (validShots.length === 0) {
-      console.error('[visual] no screenshots captured');
+    if (validShots.length === 0 && !jinaText) {
+      console.error('[visual] no data from screenshots or jina');
       return FALLBACK;
     }
 
-    // Build message content: all screenshots + extraction prompt
+    // Step 3: Build Claude message with all available data
     const imageBlocks: Anthropic.ImageBlockParam[] = validShots.map((data) => ({
       type: 'image' as const,
       source: { type: 'base64' as const, media_type: 'image/jpeg' as const, data },
@@ -120,8 +147,9 @@ export async function analyzeWebsite(url: string): Promise<VisualAnalysis> {
 
     const textPrompt: Anthropic.TextBlockParam = {
       type: 'text',
-      text: `Analiza estas capturas de pantalla de una web de negocio (${validShots.length} página${validShots.length > 1 ? 's' : ''}).
-${pageLabels}
+      text: `Analiza la web de un negocio y extrae la información solicitada.
+${validShots.length > 0 ? `\nCapturas de pantalla (${validShots.length}):\n${pageLabels}` : ''}
+${jinaText ? `\nTEXTO COMPLETO EXTRAÍDO DE LA WEB:\n---\n${jinaText}\n---` : ''}
 
 Devuelve SOLO un objeto JSON válido sin explicación adicional ni markdown:
 
@@ -134,23 +162,19 @@ Devuelve SOLO un objeto JSON válido sin explicación adicional ni markdown:
 
 INSTRUCCIONES PARA CADA CAMPO:
 
-primaryColor: Color principal de la marca. Busca en botones, header, logo, CTAs. No negro puro ni blanco puro.
-secondaryColor: Color complementario, diferente tono del primary (no solo más oscuro del mismo).
-widgetStyle: Elige UNO exacto: bubble (colorida/startup/gradientes) | minimal (blanco/limpio) | rounded (lifestyle/redondeado) | dark (oscura/tech) | neon (gaming/artística/brillante) | corporate (empresa/b2b/finanzas) | soft (belleza/salud/pastel) | floating (premium/lujo) | compact (e-commerce/noticias) | retro (vintage/bold)
-businessInfo: Extrae TODO el texto de negocio visible en las imágenes. Incluye LITERALMENTE:
-  - Nombre del negocio
-  - Dirección completa
-  - Teléfono, WhatsApp, email
-  - TODOS los servicios con sus precios EXACTOS (copia los números tal como aparecen)
-  - Horarios por día de la semana
-  - Cualquier promoción o descuento
-  Si un dato no aparece en las imágenes, no lo incluyas. No inventes nada.`,
+primaryColor: ${validShots.length > 0 ? 'Analiza VISUALMENTE las imágenes — color principal de marca en botones, header, logo, CTAs. No negro puro ni blanco puro.' : '"#1e293b"'}
+secondaryColor: ${validShots.length > 0 ? 'Analiza VISUALMENTE las imágenes — color complementario, diferente tono del primary.' : '"#334155"'}
+widgetStyle: ${validShots.length > 0 ? 'Analiza VISUALMENTE las imágenes — elige UNO exacto: bubble (startup/colorida/gradientes) | minimal (blanco/limpio) | rounded (lifestyle/redondeado) | dark (tech/oscura) | neon (gaming/brillante) | corporate (b2b/finanzas) | soft (belleza/salud/pastel) | floating (premium/lujo) | compact (e-commerce/noticias) | retro (vintage/bold)' : '"bubble"'}
+businessInfo: ${jinaText ? 'Extrae del TEXTO PROPORCIONADO ARRIBA toda la información del negocio. Incluye LITERALMENTE: nombre del negocio, dirección completa, teléfono/WhatsApp/email, TODOS los servicios con sus precios EXACTOS (copia los números tal como aparecen), horarios por día de la semana, cualquier promoción. Si un dato no aparece en el texto, no lo incluyas. No inventes nada.' : 'Extrae TODO el texto de negocio visible en las imágenes: nombre, dirección, teléfonos, servicios con precios exactos, horarios por día.'}`,
     };
+
+    const content: (Anthropic.ImageBlockParam | Anthropic.TextBlockParam)[] =
+      validShots.length > 0 ? [...imageBlocks, textPrompt] : [textPrompt];
 
     const msg = await client.messages.create({
       model: 'claude-sonnet-4-6',
       max_tokens: 1024,
-      messages: [{ role: 'user', content: [...imageBlocks, textPrompt] }],
+      messages: [{ role: 'user', content }],
     });
 
     const raw = msg.content[0].type === 'text' ? msg.content[0].text.trim() : '';
