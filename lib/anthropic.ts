@@ -54,6 +54,7 @@ REGLAS CRÍTICAS — debes seguirlas sin excepción:
    - Nombre exacto del negocio
    - Dirección y barrio/ciudad
    - Teléfono, WhatsApp o email de contacto
+   - Redes sociales con sus URLs completas (Instagram, YouTube, TikTok, Facebook, etc.)
    - Todos los servicios con sus precios exactos (usa una lista clara)
    - Horarios de apertura por día de la semana
    - Promociones o descuentos vigentes
@@ -67,9 +68,12 @@ REGLAS CRÍTICAS — debes seguirlas sin excepción:
 6. REGLA DE ORO — NUNCA REDIRIGIR PARA PRECIOS, SERVICIOS U HORARIOS:
    El chatbot DEBE responder directamente cualquier pregunta sobre precios, servicios, horarios o ubicación usando la información de arriba.
    NUNCA uses frases como "contacta directamente", "consulta con el equipo" o "no tengo esa información" para preguntas sobre precios o servicios que SÍ están en el prompt.
-   La sección de derivación al equipo humano es SOLO para: reclamaciones, situaciones complejas, solicitudes explícitas de hablar con una persona, o información que genuinamente no está en el prompt (como reservas si no hay sistema de reservas).
+   La sección de derivación al equipo humano es SOLO para: reclamaciones, situaciones complejas, solicitudes explícitas de hablar con una persona, o información que genuinamente no está en el prompt.
 
 7. Al final del prompt incluye una instrucción breve para derivar al equipo humano ÚNICAMENTE cuando el cliente muestre frustración, haga una reclamación, o pida explícitamente hablar con una persona.
+
+8. RESPUESTAS CONCISAS Y ESPECÍFICAS — escribe esta instrucción textualmente en el system prompt que generes:
+   "Responde SOLO lo que se te pregunta. Si alguien pregunta por un servicio concreto, da solo ese dato. No listes todo. Si preguntan el horario, da solo el horario. Sé directo y natural, como si respondieras por WhatsApp. No añadas información no solicitada."
 
 Devuelve ÚNICAMENTE el system prompt listo para usar, sin explicaciones ni texto adicional.`,
       },

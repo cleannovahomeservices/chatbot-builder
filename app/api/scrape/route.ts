@@ -151,6 +151,42 @@ function extractContactFromHtml(html: string): string {
   return parts.join('\n');
 }
 
+// ─── Social media link extraction ────────────────────────────────────────────
+function extractSocialLinks(html: string, jinaText: string): string {
+  const found = new Map<string, string>();
+
+  type Rule = { include: string; exclude: string[]; name: string };
+  const rules: Rule[] = [
+    { include: 'instagram.com/', exclude: ['/p/', '/reel/', '/explore/', '/stories/', 'sharer'], name: 'Instagram' },
+    { include: 'youtube.com/', exclude: ['embed/', 'watch?v=', '/shorts/', 'share'], name: 'YouTube' },
+    { include: 'facebook.com/', exclude: ['sharer', '/dialog/', '/plugins/', 'share', 'facebook.com/tr'], name: 'Facebook' },
+    { include: 'tiktok.com/@', exclude: [], name: 'TikTok' },
+    { include: 'twitter.com/', exclude: ['intent/', 'share?', '/status/'], name: 'Twitter' },
+    { include: 'x.com/', exclude: ['intent/', 'share?', '/status/'], name: 'Twitter' },
+    { include: 'linkedin.com/company/', exclude: [], name: 'LinkedIn' },
+    { include: 'linkedin.com/in/', exclude: [], name: 'LinkedIn' },
+  ];
+
+  const hrefs = [...html.matchAll(/href="([^"]+)"/gi)].map(m => m[1]);
+  const mdLinks = [...jinaText.matchAll(/\]\((https?:\/\/[^)\s]+)\)/g)].map(m => m[1]);
+
+  for (const rawUrl of [...hrefs, ...mdLinks]) {
+    const url = rawUrl.split('?')[0].split('#')[0];
+    const lower = url.toLowerCase();
+    for (const rule of rules) {
+      if (found.has(rule.name)) continue;
+      if (!lower.includes(rule.include)) continue;
+      if (rule.exclude.some(ex => lower.includes(ex))) continue;
+      found.set(rule.name, url);
+    }
+  }
+
+  if (found.size === 0) return '';
+  const lines = [...found.entries()].map(([name, url]) => `${name}: ${url}`);
+  console.log('[social] found:', lines.join(' | '));
+  return lines.join('\n');
+}
+
 // ─── CSS color extraction helpers (fallback for visual) ──────────────────────
 
 function isNeutral(hex: string): boolean {
@@ -245,9 +281,16 @@ function injectContactIfMissing(text: string, contactInfo: string): string {
   for (const line of contactInfo.split('\n').filter(Boolean)) {
     const value = line.slice(line.indexOf(': ') + 2);
     const digits = value.replace(/\D/g, '');
-    const alreadyIn = digits.length >= 8
-      ? result.replace(/\D/g, '').includes(digits.slice(-8))
-      : result.toLowerCase().includes(value.toLowerCase().slice(0, 12));
+    let alreadyIn: boolean;
+    if (digits.length >= 8) {
+      alreadyIn = result.replace(/\D/g, '').includes(digits.slice(-8));
+    } else if (value.startsWith('http')) {
+      const pathMatch = value.match(/https?:\/\/[^/]+\/(.{3,})/);
+      const path = (pathMatch?.[1] ?? '').slice(0, 24);
+      alreadyIn = path.length > 2 && result.toLowerCase().includes(path.toLowerCase());
+    } else {
+      alreadyIn = result.toLowerCase().includes(value.toLowerCase().slice(0, 12));
+    }
     if (!alreadyIn) { result = `${result}\n${line}`; console.log('[scrape] injected contact:', line); }
   }
   return result;
@@ -320,6 +363,14 @@ export async function POST(request: NextRequest) {
           contactInfo = contactInfo ? `${contactInfo}\nWhatsApp: ${num}` : `WhatsApp: ${num}`;
           console.log('[scrape] wa.me from jina:', num);
         }
+      }
+    }
+
+    // Social media links (Instagram, YouTube, TikTok, etc.)
+    if (html) {
+      const socialInfo = extractSocialLinks(html, jinaText);
+      if (socialInfo) {
+        contactInfo = contactInfo ? `${contactInfo}\n${socialInfo}` : socialInfo;
       }
     }
 
