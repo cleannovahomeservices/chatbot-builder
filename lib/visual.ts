@@ -261,11 +261,28 @@ businessInfo: Extrae TODA la información del negocio visible en las imágenes y
     const parsed = JSON.parse(match[0]) as Partial<VisualAnalysis>;
     const validStyles: WidgetStyle[] = ['bubble','minimal','rounded','dark','neon','corporate','soft','floating','compact','retro'];
 
+    let businessInfo = typeof parsed.businessInfo === 'string' ? parsed.businessInfo : '';
+
+    // Hard-inject any contact data Claude missed (phone/wa.me via CSS pseudo-elements are invisible to OCR)
+    if (contactInfo) {
+      for (const line of contactInfo.split('\n').filter(Boolean)) {
+        const value = line.slice(line.indexOf(': ') + 2);
+        const digits = value.replace(/\D/g, '');
+        const alreadyPresent = digits.length >= 8
+          ? businessInfo.replace(/\D/g, '').includes(digits.slice(-8))
+          : businessInfo.toLowerCase().includes(value.toLowerCase().slice(0, 12));
+        if (!alreadyPresent) {
+          businessInfo = businessInfo ? `${businessInfo}\n${line}` : line;
+          console.log('[visual] hard-injected missing contact:', line);
+        }
+      }
+    }
+
     return {
       primaryColor: /^#[0-9a-fA-F]{6}$/.test(parsed.primaryColor ?? '') ? parsed.primaryColor! : FALLBACK.primaryColor,
       secondaryColor: /^#[0-9a-fA-F]{6}$/.test(parsed.secondaryColor ?? '') ? parsed.secondaryColor! : FALLBACK.secondaryColor,
       widgetStyle: validStyles.includes(parsed.widgetStyle as WidgetStyle) ? parsed.widgetStyle as WidgetStyle : FALLBACK.widgetStyle,
-      businessInfo: typeof parsed.businessInfo === 'string' ? parsed.businessInfo : '',
+      businessInfo,
     };
   } catch (e) {
     console.error('[visual] analysis error:', e);
