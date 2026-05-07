@@ -59,9 +59,10 @@ export async function PATCH(
 
   // --- Customize action: update colors, system prompt, re-inject widget ---
   if (body.action === 'customize') {
-    const { primaryColor, secondaryColor, systemPrompt } = body as {
+    const { primaryColor, secondaryColor, widgetStyle, systemPrompt } = body as {
       primaryColor?: string;
       secondaryColor?: string;
+      widgetStyle?: string;
       systemPrompt?: string;
     };
 
@@ -76,6 +77,7 @@ export async function PATCH(
 
     const primary = primaryColor || chatbot.primary_color || '#7c3aed';
     const secondary = secondaryColor || chatbot.secondary_color || '#4338ca';
+    const style = widgetStyle || chatbot.widget_style || 'bubble';
     const prompt = systemPrompt !== undefined ? systemPrompt : chatbot.system_prompt;
 
     // Update n8n system prompt if changed
@@ -94,7 +96,7 @@ export async function PATCH(
         await injectWidget(
           user.github_access_token, owner, repo,
           chatbot.n8n_webhook_url, chatbot.name, appUrl,
-          primary, secondary,
+          primary, secondary, style,
         );
       } catch (e) {
         console.error('[customize] GitHub re-inject error:', e);
@@ -105,13 +107,13 @@ export async function PATCH(
     const updatePayload: Record<string, unknown> = { system_prompt: prompt };
     let result = await db
       .from('chatbots')
-      .update({ ...updatePayload, primary_color: primary, secondary_color: secondary })
+      .update({ ...updatePayload, primary_color: primary, secondary_color: secondary, widget_style: style })
       .eq('id', id)
       .eq('user_id', user.id)
       .select()
       .single();
 
-    if (result.error?.message?.includes('primary_color') || result.error?.message?.includes('secondary_color')) {
+    if (result.error?.message?.includes('primary_color') || result.error?.message?.includes('secondary_color') || result.error?.message?.includes('widget_style')) {
       result = await db
         .from('chatbots')
         .update(updatePayload)

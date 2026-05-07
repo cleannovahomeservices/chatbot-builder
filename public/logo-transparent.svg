@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" fill="none">
+  <!-- Purple rounded square background -->
+  <rect width="200" height="200" rx="44" fill="#7B4FBA"/>
+  <!-- White speech bubble -->
+  <path d="M145 65H55C49.477 65 45 69.477 45 75V125C45 130.523 49.477 135 55 135H80L70 155L105 135H145C150.523 135 155 130.523 155 125V75C155 69.477 150.523 65 145 65Z" fill="white"/>
+  <!-- Purple lightning bolt -->
+  <path d="M108 82L88 103H101L92 122L116 98H103L108 82Z" fill="#7B4FBA"/>
+</svg>

@@ -11,7 +11,7 @@ export async function POST(request: NextRequest) {
 
   const {
     name, systemPrompt, githubRepo, vercelProjectId, vercelProjectName, vercelGithubRepo,
-    primaryColor, secondaryColor, sourceUrl,
+    primaryColor, secondaryColor, widgetStyle, sourceUrl,
   } = await request.json();
 
   if (!name || !systemPrompt || (!githubRepo && !vercelProjectId)) {
@@ -21,6 +21,7 @@ export async function POST(request: NextRequest) {
   const colors = {
     primary: (primaryColor as string | undefined) || '#7c3aed',
     secondary: (secondaryColor as string | undefined) || '#4338ca',
+    style: (widgetStyle as string | undefined) || 'bubble',
   };
 
   const appUrl = new URL(request.url).origin;
@@ -42,7 +43,7 @@ export async function POST(request: NextRequest) {
       const [owner, repo] = targetRepo.split('/');
       const result = await injectWidget(
         user.github_access_token, owner, repo, webhookUrl, name, appUrl,
-        colors.primary, colors.secondary,
+        colors.primary, colors.secondary, colors.style,
       );
       widgetInjected = result.injected;
       injectReason = result.reason;
@@ -65,10 +66,9 @@ export async function POST(request: NextRequest) {
     };
 
     // Try to include color columns (they may not exist yet if migration hasn't run)
-    let result = await db.from('chatbots').insert({ ...insertData, primary_color: colors.primary, secondary_color: colors.secondary, source_url: sourceUrl || null }).select().single();
+    let result = await db.from('chatbots').insert({ ...insertData, primary_color: colors.primary, secondary_color: colors.secondary, widget_style: colors.style, source_url: sourceUrl || null }).select().single();
 
-    // If color columns don't exist yet, retry without them
-    if (result.error?.message?.includes('primary_color') || result.error?.message?.includes('secondary_color') || result.error?.message?.includes('source_url')) {
+    if (result.error?.message?.includes('primary_color') || result.error?.message?.includes('secondary_color') || result.error?.message?.includes('source_url') || result.error?.message?.includes('widget_style')) {
       result = await db.from('chatbots').insert(insertData).select().single();
     }
 

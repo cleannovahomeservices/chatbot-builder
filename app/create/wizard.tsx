@@ -55,6 +55,7 @@ export function CreateWizard({
   const [extractedColors, setExtractedColors] = useState<{ primary: string; secondary: string } | null>(null);
   const [widgetPrimary, setWidgetPrimary] = useState('#7c3aed');
   const [widgetSecondary, setWidgetSecondary] = useState('#4338ca');
+  const [widgetStyle, setWidgetStyle] = useState('bubble');
   const [sourceUrl, setSourceUrl] = useState<string>("");
 
   async function startGenerating() {
@@ -75,6 +76,7 @@ export function CreateWizard({
           setWidgetPrimary(d.primaryColor);
           setWidgetSecondary(d.secondaryColor);
         }
+        if (d.widgetStyle) setWidgetStyle(d.widgetStyle);
         setSourceUrl(userInput);
       }
       const r = await fetch("/api/generate-prompt", {
@@ -133,6 +135,7 @@ export function CreateWizard({
             setWidgetPrimary(d.primaryColor);
             setWidgetSecondary(d.secondaryColor);
           }
+          if (d.widgetStyle) setWidgetStyle(d.widgetStyle);
           setSourceUrl(initialInput);
         }
         const r = await fetch("/api/generate-prompt", {
@@ -208,7 +211,7 @@ export function CreateWizard({
     if (!target || !chatbotName.trim()) return;
     setStep("creating");
     try {
-      const colors = { primaryColor: widgetPrimary, secondaryColor: widgetSecondary };
+      const colors = { primaryColor: widgetPrimary, secondaryColor: widgetSecondary, widgetStyle };
       const body =
         deployMethod === "github"
           ? { name: chatbotName, systemPrompt: prompt, githubRepo: selectedRepo, sourceUrl, ...colors }
@@ -352,6 +355,25 @@ export function CreateWizard({
                   </div>
                 </label>
               </div>
+              {/* Style selector */}
+              <div className="mb-4">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs text-white/50">Estilo del widget</p>
+                  {extractedColors && <span className="text-xs text-violet-400">Elegido por IA</span>}
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {(['bubble','minimal','rounded','dark','neon','corporate','soft','floating','compact','retro'] as const).map((st) => (
+                    <button
+                      key={st}
+                      onClick={() => setWidgetStyle(st)}
+                      className={`px-3 py-1 rounded-full text-xs font-medium transition-all cursor-pointer border ${widgetStyle === st ? 'bg-violet-600 border-violet-500 text-white' : 'bg-white/5 border-white/10 text-white/50 hover:text-white hover:border-white/20'}`}
+                    >
+                      {st}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               {/* Live preview */}
               <div className="rounded-xl overflow-hidden border border-white/10" style={{ background: '#0d0d0d' }}>
                 <div className="px-4 py-2.5 text-xs font-semibold text-white flex items-center gap-2" style={{ background: `linear-gradient(135deg, ${widgetPrimary}, ${widgetSecondary})` }}>
