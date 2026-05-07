@@ -1,57 +1,65 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
 
-function extractColors(html: string): { primary: string; secondary: string } | null {
-  // Extract <style> blocks
-  const styleBlocks = [...html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/gi)]
-    .map(m => m[1])
-    .join('\n');
-
-  // 1. CSS variables with brand/primary/accent names
-  const varPattern = /--(?:primary|brand|accent|main|color|theme|highlight)(?:[-\w]*)?:\s*(#[0-9a-fA-F]{6})/gi;
-  const cssVarColors: string[] = [];
-  for (const m of styleBlocks.matchAll(varPattern)) cssVarColors.push(m[1].toLowerCase());
-
-  // 2. Button/CTA background colors
-  const btnPattern = /(?:\.btn|\.button|button)[^{]*\{[^}]*background(?:-color)?:\s*(#[0-9a-fA-F]{6})/gi;
-  const btnColors: string[] = [];
-  for (const m of styleBlocks.matchAll(btnPattern)) btnColors.push(m[1].toLowerCase());
-
-  // 3. All hex colors in styles — count frequency
-  const allHex: string[] = [];
-  for (const m of styleBlocks.matchAll(/#([0-9a-fA-F]{6})\b/gi)) allHex.push('#' + m[1].toLowerCase());
-  // Also check inline styles in HTML
-  for (const m of html.matchAll(/style="[^"]*color:\s*(#[0-9a-fA-F]{6})/gi)) allHex.push(m[1].toLowerCase());
-
-  const isNeutral = (hex: string) => {
-    const r = parseInt(hex.slice(1, 3), 16);
-    const g = parseInt(hex.slice(3, 5), 16);
-    const b = parseInt(hex.slice(5, 7), 16);
-    const max = Math.max(r, g, b), min = Math.min(r, g, b);
-    const sat = max === 0 ? 0 : (max - min) / max;
-    const lum = (max + min) / 510;
-    return sat < 0.18 || lum < 0.06 || lum > 0.94;
-  };
-
-  const candidates = [...cssVarColors, ...btnColors, ...allHex].filter(c => !isNeutral(c));
-  if (candidates.length === 0) return null;
-
-  const freq: Record<string, number> = {};
-  for (const c of candidates) freq[c] = (freq[c] || 0) + 1;
-  const sorted = Object.entries(freq).sort((a, b) => b[1] - a[1]);
-
-  const primary = sorted[0][0];
-  // Pick secondary from top candidates that differs enough
-  const secondary = sorted.find(([c]) => c !== primary)?.[0] ?? darken(primary);
-
-  return { primary, secondary };
+function isNeutral(hex: string): boolean {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  const sat = max === 0 ? 0 : (max - min) / max;
+  const lum = (max + min) / 510;
+  return sat < 0.18 || lum < 0.06 || lum > 0.94;
 }
 
-function darken(hex: string): string {
-  const r = Math.max(0, parseInt(hex.slice(1, 3), 16) - 30);
-  const g = Math.max(0, parseInt(hex.slice(3, 5), 16) - 30);
-  const b = Math.max(0, parseInt(hex.slice(5, 7), 16) - 30);
+function darken(hex: string, amount = 40): string {
+  const r = Math.max(0, parseInt(hex.slice(1, 3), 16) - amount);
+  const g = Math.max(0, parseInt(hex.slice(3, 5), 16) - amount);
+  const b = Math.max(0, parseInt(hex.slice(5, 7), 16) - amount);
   return '#' + [r, g, b].map(v => v.toString(16).padStart(2, '0')).join('');
+}
+
+function extractColors(html: string): { primary: string; secondary: string } | null {
+  const priority: string[] = [];   // high-confidence signals
+  const fallback: string[] = [];   // frequency-based
+
+  // 1. <meta name="theme-color"> — explicit brand color set by the site owner
+  for (const m of html.matchAll(/<meta[^>]+>/gi)) {
+    const tag = m[0];
+    if (/theme-color|msapplication-tilecolor/i.test(tag)) {
+      const c = tag.match(/content="(#[0-9a-fA-F]{6})"/i);
+      if (c) priority.push(c[1].toLowerCase());
+    }
+  }
+
+  // 2. CSS custom properties with brand/primary/accent names
+  const styleBlocks = [...html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/gi)]
+    .map(m => m[1]).join('\n');
+  const varPattern = /--(?:primary|brand|accent|main|color|theme|highlight)(?:[-\w]*)?:\s*(#[0-9a-fA-F]{6})/gi;
+  for (const m of styleBlocks.matchAll(varPattern)) priority.push(m[1].toLowerCase());
+
+  // 3. Button / CTA background colors
+  const btnPattern = /(?:\.btn|\.button|button)[^{]*\{[^}]*background(?:-color)?:\s*(#[0-9a-fA-F]{6})/gi;
+  for (const m of styleBlocks.matchAll(btnPattern)) priority.push(m[1].toLowerCase());
+
+  // 4. SVG fill colors in the first 6 000 chars (usually logo / header area)
+  for (const m of html.slice(0, 6000).matchAll(/fill="(#[0-9a-fA-F]{6})"/gi))
+    priority.push(m[1].toLowerCase());
+
+  // 5. All hex colors — frequency analysis as last resort
+  for (const m of styleBlocks.matchAll(/#([0-9a-fA-F]{6})\b/gi)) fallback.push('#' + m[1].toLowerCase());
+  for (const m of html.matchAll(/style="[^"]*(?:background|color)(?:-color)?:\s*(#[0-9a-fA-F]{6})/gi))
+    fallback.push(m[1].toLowerCase());
+
+  const freq: Record<string, number> = {};
+  for (const c of fallback) freq[c] = (freq[c] || 0) + 1;
+  const byFreq = Object.entries(freq).sort((a, b) => b[1] - a[1]).map(([c]) => c);
+
+  const candidates = [...priority, ...byFreq].filter(c => !isNeutral(c));
+  if (candidates.length === 0) return null;
+
+  const primary = candidates[0];
+  const secondary = candidates.find(c => c !== primary) ?? darken(primary);
+  return { primary, secondary };
 }
 
 function extractJsonLd(html: string): string {
@@ -104,9 +112,11 @@ function extractText(html: string): string {
 function extractInternalLinks(html: string, baseUrl: string): string[] {
   const base = new URL(baseUrl);
   const keywords = [
-    'precio', 'tarifa', 'servicio', 'menu', 'carta', 'catalogo',
-    'contacto', 'horario', 'tratamiento', 'about', 'service', 'pricing',
-    'barberia', 'peluqueria', 'reserva', 'cita', 'nosotros',
+    // Spanish
+    'precio', 'tarifa', 'servicio', 'menu', 'carta', 'catalogo', 'producto',
+    'contacto', 'horario', 'tratamiento', 'reserva', 'cita', 'nosotros', 'oferta',
+    // English
+    'service', 'pricing', 'price', 'menu', 'product', 'contact', 'about', 'hours', 'offer',
   ];
   const seen = new Set<string>();
   const links: string[] = [];

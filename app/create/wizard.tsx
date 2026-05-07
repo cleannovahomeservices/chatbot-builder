@@ -53,6 +53,8 @@ export function CreateWizard({
   const [injectReason, setInjectReason] = useState<string | undefined>();
   const [injectPrUrl, setInjectPrUrl] = useState<string | undefined>();
   const [extractedColors, setExtractedColors] = useState<{ primary: string; secondary: string } | null>(null);
+  const [widgetPrimary, setWidgetPrimary] = useState('#7c3aed');
+  const [widgetSecondary, setWidgetSecondary] = useState('#4338ca');
   const [sourceUrl, setSourceUrl] = useState<string>("");
 
   async function startGenerating() {
@@ -70,6 +72,8 @@ export function CreateWizard({
         if (d.text) input = d.text;
         if (d.primaryColor && d.secondaryColor) {
           setExtractedColors({ primary: d.primaryColor, secondary: d.secondaryColor });
+          setWidgetPrimary(d.primaryColor);
+          setWidgetSecondary(d.secondaryColor);
         }
         setSourceUrl(userInput);
       }
@@ -124,7 +128,11 @@ export function CreateWizard({
           });
           const d = await r.json();
           if (d.text) input = d.text;
-          if (d.primaryColor && d.secondaryColor) setExtractedColors({ primary: d.primaryColor, secondary: d.secondaryColor });
+          if (d.primaryColor && d.secondaryColor) {
+            setExtractedColors({ primary: d.primaryColor, secondary: d.secondaryColor });
+            setWidgetPrimary(d.primaryColor);
+            setWidgetSecondary(d.secondaryColor);
+          }
           setSourceUrl(initialInput);
         }
         const r = await fetch("/api/generate-prompt", {
@@ -200,11 +208,11 @@ export function CreateWizard({
     if (!target || !chatbotName.trim()) return;
     setStep("creating");
     try {
-      const colorPayload = extractedColors ?? {};
+      const colors = { primaryColor: widgetPrimary, secondaryColor: widgetSecondary };
       const body =
         deployMethod === "github"
-          ? { name: chatbotName, systemPrompt: prompt, githubRepo: selectedRepo, sourceUrl, ...colorPayload }
-          : { name: chatbotName, systemPrompt: prompt, vercelProjectId: selectedVercelProject!.id, vercelProjectName: selectedVercelProject!.name, vercelGithubRepo: selectedVercelProject?.link ? `${selectedVercelProject.link.org}/${selectedVercelProject.link.repo}` : null, sourceUrl, ...colorPayload };
+          ? { name: chatbotName, systemPrompt: prompt, githubRepo: selectedRepo, sourceUrl, ...colors }
+          : { name: chatbotName, systemPrompt: prompt, vercelProjectId: selectedVercelProject!.id, vercelProjectName: selectedVercelProject!.name, vercelGithubRepo: selectedVercelProject?.link ? `${selectedVercelProject.link.org}/${selectedVercelProject.link.repo}` : null, sourceUrl, ...colors };
 
       const res = await fetch("/api/chatbots", {
         method: "POST",
@@ -299,14 +307,64 @@ export function CreateWizard({
         {/* STEP: Review prompt */}
         {step === "review" && (
           <div>
-            <h2 className="text-2xl font-bold mb-2">Tu system prompt</h2>
-            <p className="text-white/50 mb-6">Revisa y edita el prompt que usará tu chatbot.</p>
+            <h2 className="text-2xl font-bold mb-2">Tu chatbot está listo</h2>
+            <p className="text-white/50 mb-6">Revisa el prompt y los colores antes de continuar.</p>
             <textarea
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
-              rows={10}
+              rows={8}
               className="w-full resize-none rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none focus:border-violet-500/60 focus:ring-1 focus:ring-violet-500/30"
             />
+
+            {/* Color pickers */}
+            <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.03] p-4">
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-sm font-medium text-white/80">Colores del widget</p>
+                {extractedColors && (
+                  <span className="text-xs text-emerald-400 border border-emerald-500/30 bg-emerald-500/10 rounded-full px-2 py-0.5">
+                    Detectados de tu web
+                  </span>
+                )}
+              </div>
+              <div className="flex gap-4 mb-4">
+                <label className="flex-1">
+                  <span className="text-xs text-white/50 block mb-1.5">Color principal</span>
+                  <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-lg px-3 py-2">
+                    <input
+                      type="color"
+                      value={widgetPrimary}
+                      onChange={(e) => setWidgetPrimary(e.target.value)}
+                      className="w-7 h-7 rounded cursor-pointer border-0 bg-transparent p-0"
+                    />
+                    <span className="text-xs font-mono text-white/70">{widgetPrimary}</span>
+                  </div>
+                </label>
+                <label className="flex-1">
+                  <span className="text-xs text-white/50 block mb-1.5">Color secundario</span>
+                  <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-lg px-3 py-2">
+                    <input
+                      type="color"
+                      value={widgetSecondary}
+                      onChange={(e) => setWidgetSecondary(e.target.value)}
+                      className="w-7 h-7 rounded cursor-pointer border-0 bg-transparent p-0"
+                    />
+                    <span className="text-xs font-mono text-white/70">{widgetSecondary}</span>
+                  </div>
+                </label>
+              </div>
+              {/* Live preview */}
+              <div className="rounded-xl overflow-hidden border border-white/10" style={{ background: '#0d0d0d' }}>
+                <div className="px-4 py-2.5 text-xs font-semibold text-white flex items-center gap-2" style={{ background: `linear-gradient(135deg, ${widgetPrimary}, ${widgetSecondary})` }}>
+                  <span className="w-2 h-2 rounded-full bg-green-400 inline-block" />
+                  Asistente virtual
+                </div>
+                <div className="px-4 py-3 flex flex-col gap-2">
+                  <div className="text-xs text-white/70 bg-white/5 rounded-lg px-3 py-2 self-start max-w-[75%]">¡Hola! ¿En qué puedo ayudarte?</div>
+                  <div className="text-xs text-white rounded-lg px-3 py-2 self-end max-w-[75%]" style={{ background: `linear-gradient(135deg, ${widgetPrimary}, ${widgetSecondary})` }}>Hola, necesito información</div>
+                </div>
+              </div>
+            </div>
+
             <button
               onClick={goToRepo}
               className="mt-6 w-full rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 py-4 font-semibold text-white hover:from-violet-500 hover:to-indigo-500 transition active:scale-[0.99] cursor-pointer"
