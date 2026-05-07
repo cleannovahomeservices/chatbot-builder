@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { deleteWorkflow, setWorkflowActive } from '@/lib/n8n';
+import { deleteWorkflow } from '@/lib/n8n';
+import { removeWidget, injectWidget } from '@/lib/github';
 
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const user = await getSession();
@@ -15,12 +16,21 @@ export async function DELETE(
 
   const { data: chatbot } = await db
     .from('chatbots')
-    .select('n8n_workflow_id')
+    .select('n8n_workflow_id, github_repo, name')
     .eq('id', id)
     .eq('user_id', user.id)
     .single();
 
-  if (chatbot?.n8n_workflow_id) {
+  if (!chatbot) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+
+  // Remove widget from GitHub repo
+  if (chatbot.github_repo && user.github_access_token) {
+    const [owner, repo] = chatbot.github_repo.split('/');
+    try { await removeWidget(user.github_access_token, owner, repo, chatbot.name); } catch {}
+  }
+
+  // Delete workflow from n8n
+  if (chatbot.n8n_workflow_id) {
     try { await deleteWorkflow(chatbot.n8n_workflow_id); } catch {}
   }
 
@@ -49,21 +59,35 @@ export async function PATCH(
   }
 
   const db = createAdminClient();
+  const appUrl = new URL(request.url).origin;
 
   const { data: chatbot } = await db
     .from('chatbots')
-    .select('n8n_workflow_id')
+    .select('n8n_workflow_id, github_repo, name, n8n_webhook_url')
     .eq('id', id)
     .eq('user_id', user.id)
     .single();
 
-  if (chatbot?.n8n_workflow_id) {
-    try { await setWorkflowActive(chatbot.n8n_workflow_id, status === 'active'); } catch {}
+  if (!chatbot) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+
+  if (chatbot.github_repo && user.github_access_token) {
+    const [owner, repo] = chatbot.github_repo.split('/');
+    try {
+      if (status === 'inactive') {
+        // Remove widget from code
+        await removeWidget(user.github_access_token, owner, repo, chatbot.name);
+      } else {
+        // Re-inject widget into code
+        await injectWidget(user.github_access_token, owner, repo, chatbot.n8n_webhook_url, chatbot.name, appUrl);
+      }
+    } catch (e) {
+      console.error(`[toggle] GitHub error:`, e);
+    }
   }
 
   const { data, error } = await db
     .from('chatbots')
-    .update({ status })
+    .update({ status, widget_injected: status === 'active' })
     .eq('id', id)
     .eq('user_id', user.id)
     .select()

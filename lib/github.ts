@@ -167,6 +167,69 @@ export async function injectWidget(
   return { ...injectResult, cspPatched };
 }
 
+export async function removeWidget(
+  token: string,
+  owner: string,
+  repo: string,
+  chatbotName: string
+): Promise<{ removed: boolean; file?: string; reason?: string }> {
+  const headers = makeHeaders(token);
+
+  const treeRes = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/git/trees/HEAD?recursive=1`, { headers });
+  if (!treeRes.ok) return { removed: false, reason: `tree API ${treeRes.status}` };
+
+  const data = await treeRes.json();
+  const files: string[] = ((data.tree ?? []) as { type: string; path: string }[])
+    .filter((f) => f.type === 'blob')
+    .map((f) => f.path)
+    .filter((p) => !p.includes('node_modules/') && !p.includes('.next/'));
+
+  const candidates = [
+    files.find((f) => /^(src\/)?app\/layout\.[jt]sx?$/.test(f)),
+    files.find((f) => /^(src\/)?pages\/_document\.[jt]sx?$/.test(f)),
+    ...files.filter((f) => (f.endsWith('.html') || f.endsWith('.htm')) && !f.includes('/vendor/')),
+  ].filter(Boolean) as string[];
+
+  const escaped = chatbotName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+  for (const filePath of candidates) {
+    const res = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/contents/${filePath}`, { headers });
+    if (!res.ok) continue;
+    const file = await res.json();
+    if (!file.content) continue;
+    const content = Buffer.from(file.content, 'base64').toString('utf-8');
+
+    if (!content.includes(`<!-- Chatbot: ${chatbotName} -->`) && !content.includes(`{/* Chatbot: ${chatbotName} */}`)) continue;
+
+    // Remove HTML-style snippet: <!-- Chatbot: NAME --> + 2 script lines
+    let updated = content.replace(
+      new RegExp(`\\n[ \\t]*<!-- Chatbot: ${escaped} -->[\\s\\S]*?widget\\.js" async defer><\\/script>`, 'm'),
+      ''
+    );
+    // Remove JSX-style snippet: {/* Chatbot: NAME */} + 2 script tags
+    if (updated === content) {
+      updated = content.replace(
+        new RegExp(`\\n[ \\t]*\\{/\\* Chatbot: ${escaped} \\*/\\}[\\s\\S]*?widget\\.js" async defer />[ \\t]*`, 'm'),
+        ''
+      );
+    }
+    if (updated === content) continue;
+
+    const putRes = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/contents/${filePath}`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({
+        message: `Remove ${chatbotName} chatbot widget`,
+        content: Buffer.from(updated).toString('base64'),
+        sha: file.sha,
+      }),
+    });
+    if (putRes.ok) return { removed: true, file: filePath };
+  }
+
+  return { removed: false, reason: 'widget no encontrado en ningún archivo' };
+}
+
 async function patchCspFiles(
   token: string,
   owner: string,
