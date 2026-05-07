@@ -45,11 +45,12 @@
     msgs.scrollTop = msgs.scrollHeight;
 
     try {
-      // n8n chatTrigger expects { chatInput, sessionId }
-      var r = await fetch(webhookUrl, {
+      // Route through chatbot-builder proxy to avoid browser DNS/CSP issues
+      var proxyUrl = 'https://chatbot-builder-iota.vercel.app/api/chat';
+      var r = await fetch(proxyUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chatInput: text, sessionId: sessionId }),
+        body: JSON.stringify({ webhookUrl: webhookUrl, message: text, sessionId: sessionId }),
       });
       var d = await r.json();
       t.className = 'cb-msg cb-bot';
