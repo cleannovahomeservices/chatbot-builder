@@ -37,6 +37,7 @@ export function CreateWizard({
     initialVercel ? "vercel" : "github"
   );
   const [repos, setRepos] = useState<Repo[]>([]);
+  const [repoSearch, setRepoSearch] = useState('');
   const [githubConnected, setGithubConnected] = useState<boolean | null>(null);
   const [vercelProjects, setVercelProjects] = useState<VercelProject[]>([]);
   const [vercelConnected, setVercelConnected] = useState(false);
@@ -372,21 +373,36 @@ export function CreateWizard({
                     Cargando repositorios…
                   </div>
                 ) : (
-                  <div className="max-h-60 overflow-y-auto rounded-xl border border-white/10 bg-white/[0.03]">
-                    {repos.length === 0 ? (
-                      <div className="p-6 text-center text-white/40 text-sm">No se encontraron repositorios</div>
-                    ) : (
-                      repos.map((r) => (
-                        <button
-                          key={r.full_name}
-                          onClick={() => setSelectedRepo(r.full_name)}
-                          className={`w-full flex items-center justify-between px-4 py-3 text-left text-sm transition border-b border-white/5 last:border-0 cursor-pointer ${selectedRepo === r.full_name ? "bg-violet-500/20 text-white" : "text-white/70 hover:bg-white/5"}`}
-                        >
-                          <span>{r.full_name}</span>
-                          {r.private && <span className="text-xs text-white/30 border border-white/10 rounded px-1.5 py-0.5">privado</span>}
-                        </button>
-                      ))
-                    )}
+                  <div className="rounded-xl border border-white/10 bg-white/[0.03] overflow-hidden">
+                    <div className="px-3 pt-3 pb-2 border-b border-white/5">
+                      <input
+                        type="text"
+                        value={repoSearch}
+                        onChange={(e) => setRepoSearch(e.target.value)}
+                        placeholder="Buscar repositorio…"
+                        className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/25 outline-none focus:border-violet-500/60"
+                      />
+                    </div>
+                    <div className="max-h-52 overflow-y-auto">
+                      {repos.filter(r => r.full_name.toLowerCase().includes(repoSearch.toLowerCase())).length === 0 ? (
+                        <div className="p-6 text-center text-white/40 text-sm">
+                          {repos.length === 0 ? 'No se encontraron repositorios' : 'Sin resultados para esa búsqueda'}
+                        </div>
+                      ) : (
+                        repos
+                          .filter(r => r.full_name.toLowerCase().includes(repoSearch.toLowerCase()))
+                          .map((r) => (
+                            <button
+                              key={r.full_name}
+                              onClick={() => setSelectedRepo(r.full_name)}
+                              className={`w-full flex items-center justify-between px-4 py-3 text-left text-sm transition border-b border-white/5 last:border-0 cursor-pointer ${selectedRepo === r.full_name ? "bg-violet-500/20 text-white" : "text-white/70 hover:bg-white/5"}`}
+                            >
+                              <span>{r.full_name}</span>
+                              {r.private && <span className="text-xs text-white/30 border border-white/10 rounded px-1.5 py-0.5">privado</span>}
+                            </button>
+                          ))
+                      )}
+                    </div>
                   </div>
                 )}
               </>

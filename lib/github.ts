@@ -60,7 +60,7 @@ export async function getGitHubUser(token: string) {
 }
 
 export async function listUserRepos(token: string) {
-  const res = await fetch(`${GITHUB_API}/user/repos?sort=updated&per_page=50&type=owner`, {
+  const res = await fetch(`${GITHUB_API}/user/repos?sort=updated&per_page=100&type=all`, {
     headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' },
   });
   return res.json();
@@ -150,14 +150,30 @@ export async function injectWidget(
       .sort((a, b) => a.split('/').length - b.split('/').length || a.length - b.length);
 
     for (const path of htmlFiles) {
-      const result = await tryInjectIntoHtmlFile(token, owner, repo, path, webhookUrl, chatbotName, appUrl);
+      const result = await tryInjectIntoMarkupFile(token, owner, repo, path, webhookUrl, chatbotName, appUrl);
+      if (result.ok) { injectResult = { injected: !result.prUrl, file: path, prUrl: result.prUrl }; break; }
+    }
+  }
+
+  if (!injectResult) {
+    // PHP, Blade, and similar server-side templates: prioritise footer/index/home files
+    const phpFiles = files
+      .filter((f) => (f.endsWith('.php') || f.endsWith('.blade.php')) && !f.includes('/vendor/') && !f.includes('/node_modules/'))
+      .sort((a, b) => {
+        const priority = (p: string) => {
+          if (/\/(footer|index|home|default)\.[^/]*$/.test(p) || /^(footer|index|home|default)\.[^/]*$/.test(p)) return 0;
+          return 1;
+        };
+        return priority(a) - priority(b) || a.split('/').length - b.split('/').length || a.length - b.length;
+      });
+
+    for (const path of phpFiles) {
+      const result = await tryInjectIntoMarkupFile(token, owner, repo, path, webhookUrl, chatbotName, appUrl);
       if (result.ok) { injectResult = { injected: !result.prUrl, file: path, prUrl: result.prUrl }; break; }
     }
 
     if (!injectResult) {
-      const reason = htmlFiles.length > 0
-        ? 'no se pudo modificar ningún archivo (sin permisos o branch protegida)'
-        : 'no se encontró layout.tsx, _document ni archivos HTML en el repo';
+      const reason = 'no se encontró layout.tsx, _document, archivos HTML ni PHP con </body> en el repo';
       return { injected: false, reason };
     }
   }
@@ -382,7 +398,7 @@ async function tryCreatePR(
   return prData.html_url ?? null;
 }
 
-async function tryInjectIntoHtmlFile(
+async function tryInjectIntoMarkupFile(
   token: string,
   owner: string,
   repo: string,
@@ -398,12 +414,22 @@ async function tryInjectIntoHtmlFile(
   const file = await res.json();
   if (!file.content) return { ok: false, error: 'contenido vacío (archivo demasiado grande)' };
   const content = Buffer.from(file.content, 'base64').toString('utf-8');
-  if (!content.includes('</body>')) return { ok: false, error: 'sin </body>' };
 
-  const snippet = `\n  <!-- Chatbot: ${chatbotName} -->\n  <script>window.ChatbotConfig={webhookUrl:"${webhookUrl}",name:"${chatbotName}"};</script>\n  <script src="${appUrl}/widget.js" async defer></script>`;
-  const updated = content.replace('</body>', `${snippet}\n</body>`);
+  const bodySnippet = `\n  <!-- Chatbot: ${chatbotName} -->\n  <script>window.ChatbotConfig={webhookUrl:"${webhookUrl}",name:"${chatbotName}"};</script>\n  <script src="${appUrl}/widget.js" async defer></script>`;
 
-  return putFileDirectOrPR(token, owner, repo, filePath, updated, file.sha, `Add ${chatbotName} chatbot widget`);
+  if (content.includes('</body>')) {
+    const updated = content.replace('</body>', `${bodySnippet}\n</body>`);
+    return putFileDirectOrPR(token, owner, repo, filePath, updated, file.sha, `Add ${chatbotName} chatbot widget`);
+  }
+
+  // Fallback: inject before </head> (e.g. WordPress header.php partials)
+  if (content.includes('</head>')) {
+    const headSnippet = `\n  <!-- Chatbot: ${chatbotName} -->\n  <script>window.ChatbotConfig={webhookUrl:"${webhookUrl}",name:"${chatbotName}"};</script>\n  <script src="${appUrl}/widget.js" async defer></script>`;
+    const updated = content.replace('</head>', `${headSnippet}\n</head>`);
+    return putFileDirectOrPR(token, owner, repo, filePath, updated, file.sha, `Add ${chatbotName} chatbot widget`);
+  }
+
+  return { ok: false, error: 'sin </body> ni </head>' };
 }
 
 async function tryInjectIntoNextLayout(
