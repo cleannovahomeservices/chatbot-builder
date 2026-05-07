@@ -157,41 +157,6 @@ function mostSaturated(hexList: string[]): string | null {
   return best && best.sat > 0.04 ? best.hex : null;
 }
 
-async function scrapeWithApify(url: string): Promise<string | null> {
-  const token = process.env.APIFY_API_KEY;
-  if (!token) return null;
-  try {
-    const res = await fetch(
-      `https://api.apify.com/v2/acts/apify~website-content-crawler/run-sync-get-dataset-items?token=${token}&timeout=40&memory=1024`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          startUrls: [{ url }],
-          maxCrawlPages: 5,
-          maxCrawlDepth: 1,
-          crawlerType: 'playwright:adaptive',
-        }),
-        signal: AbortSignal.timeout(50_000),
-      }
-    );
-    if (!res.ok) {
-      console.error('[apify] error:', res.status, await res.text().catch(() => ''));
-      return null;
-    }
-    const items = await res.json() as Array<{ text?: string; url?: string }>;
-    if (!Array.isArray(items) || items.length === 0) return null;
-    console.log(`[apify] got ${items.length} pages for ${url}`);
-    return items
-      .map(i => i.url !== url ? `\n\n[${i.url}]\n${(i.text ?? '').slice(0, 5000)}` : (i.text ?? '').slice(0, 10000))
-      .join('\n\n')
-      .slice(0, 20000);
-  } catch (e) {
-    console.error('[apify] fetch error:', e);
-    return null;
-  }
-}
-
 export async function POST(request: NextRequest) {
   const user = await getSession();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -199,82 +164,48 @@ export async function POST(request: NextRequest) {
   const { url } = await request.json();
 
   try {
-    // Run HTML scrape + Apify + visual analysis in parallel
-    const [htmlResult, apifyText, visual] = await Promise.allSettled([
-      fetch(url, { headers: { 'User-Agent': BOT_UA }, signal: AbortSignal.timeout(10_000) }).then(r => r.text()),
-      scrapeWithApify(url),
-      analyzeWebsite(url),
-    ]);
+    // PRIMARY: Screenshot(s) → Claude Sonnet → colors + style + business text
+    const visual = await analyzeWebsite(url);
 
-    const html = htmlResult.status === 'fulfilled' ? htmlResult.value : '';
-    const apifyContent = apifyText.status === 'fulfilled' ? apifyText.value : null;
-    const visualResult = visual.status === 'fulfilled' ? visual.value : null;
-
-    // --- Text content: prefer Apify (renders JS), fall back to HTML scraping ---
-    let textContent: string;
-    if (apifyContent) {
-      textContent = apifyContent;
-    } else if (html) {
-      const rawText = extractText(html);
-      const jsonLd = extractJsonLd(html);
-      const subLinks = extractInternalLinks(html, url);
-      const subResults = await Promise.allSettled(
-        subLinks.slice(0, 2).map(async (link) => {
-          const r = await fetch(link, { headers: { 'User-Agent': BOT_UA }, signal: AbortSignal.timeout(5_000) });
-          const h = await r.text();
-          return `\n\n[Sección: ${link}]\n${extractText(h).slice(0, 4000)}`;
-        })
-      );
-      const subTexts = subResults
-        .filter((r): r is PromiseFulfilledResult<string> => r.status === 'fulfilled')
-        .map(r => r.value);
-      textContent = [jsonLd, rawText, ...subTexts].filter(Boolean).join('\n\n').slice(0, 20000);
-    } else {
-      return NextResponse.json({ error: 'No se pudo acceder a la URL' }, { status: 422 });
+    if (visual.businessInfo) {
+      // Visual analysis got everything — use it directly
+      return NextResponse.json({
+        text: visual.businessInfo,
+        primaryColor: visual.primaryColor,
+        secondaryColor: visual.secondaryColor,
+        widgetStyle: visual.widgetStyle,
+      });
     }
 
-    // --- Colors + style: prefer Claude Vision, fall back to CSS parsing ---
-    let primaryColor: string;
-    let secondaryColor: string;
-    let widgetStyle: string;
+    // FALLBACK: HTML scraping (for when Screenshotone is unavailable)
+    const res = await fetch(url, {
+      headers: { 'User-Agent': BOT_UA },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) return NextResponse.json({ error: 'No se pudo acceder a la URL' }, { status: 422 });
+    const html = await res.text();
 
-    if (visualResult) {
-      primaryColor = visualResult.primaryColor;
-      secondaryColor = visualResult.secondaryColor;
-      widgetStyle = visualResult.widgetStyle;
-    } else if (html) {
-      // CSS parsing fallback (existing 5-pass logic)
+    const rawText = extractText(html);
+    const jsonLd = extractJsonLd(html);
+    const subLinks = extractInternalLinks(html, url);
+    const subResults = await Promise.allSettled(
+      subLinks.slice(0, 2).map(async (link) => {
+        const r = await fetch(link, { headers: { 'User-Agent': BOT_UA }, signal: AbortSignal.timeout(5_000) });
+        const h = await r.text();
+        return `\n\n[Sección: ${link}]\n${extractText(h).slice(0, 4000)}`;
+      })
+    );
+    const subTexts = subResults
+      .filter((r): r is PromiseFulfilledResult<string> => r.status === 'fulfilled')
+      .map(r => r.value);
+    const textContent = [jsonLd, rawText, ...subTexts].filter(Boolean).join('\n\n').slice(0, 20000);
+
+    // Use colors from visual (even without businessInfo they're valid) or fall back to CSS
+    let primaryColor = visual.primaryColor !== '#1e293b' ? visual.primaryColor : '';
+    let secondaryColor = visual.secondaryColor !== '#334155' ? visual.secondaryColor : '';
+
+    if (!primaryColor) {
       let colors = extractColors(html);
-      if (!colors) {
-        const manifestHref = html.match(/<link[^>]+rel="manifest"[^>]+href="([^"]+)"/i)?.[1]
-          ?? html.match(/<link[^>]+href="([^"]+)"[^>]+rel="manifest"/i)?.[1];
-        if (manifestHref) {
-          try {
-            const mUrl = new URL(manifestHref, url).href;
-            const mRes = await fetch(mUrl, { headers: { 'User-Agent': BOT_UA }, signal: AbortSignal.timeout(3_000) });
-            const manifest = await mRes.json() as Record<string, unknown>;
-            const tc = manifest.theme_color as string | undefined;
-            if (tc && /^#[0-9a-fA-F]{6}$/.test(tc) && !isNeutral(tc.toLowerCase())) {
-              const primary = tc.toLowerCase();
-              colors = { primary, secondary: darken(primary) };
-            }
-          } catch { /* ignore */ }
-        }
-      }
-      if (!colors) {
-        const cssHrefs = [...html.matchAll(/<link[^>]+rel="stylesheet"[^>]+href="([^"]+)"/gi)]
-          .map(m => m[1])
-          .filter(h => !h.includes('fonts.google') && !h.includes('font-awesome') && !h.includes('cdn.jsdelivr'));
-        for (const cssHref of cssHrefs.slice(0, 2)) {
-          try {
-            const cssUrl = new URL(cssHref, url).href;
-            const cssRes = await fetch(cssUrl, { headers: { 'User-Agent': BOT_UA }, signal: AbortSignal.timeout(4_000) });
-            const cssText = await cssRes.text();
-            colors = extractColors(`<style>${cssText.slice(0, 60_000)}</style>`);
-            if (colors) break;
-          } catch { /* ignore */ }
-        }
-      }
       if (!colors) {
         const allHex = [...html.matchAll(/#([0-9a-fA-F]{6})\b/g)].map(m => '#' + m[1].toLowerCase());
         const primary = mostSaturated([...new Set(allHex)]);
@@ -283,14 +214,14 @@ export async function POST(request: NextRequest) {
       colors ??= { primary: '#1e293b', secondary: '#334155' };
       primaryColor = colors.primary;
       secondaryColor = colors.secondary;
-      widgetStyle = 'bubble';
-    } else {
-      primaryColor = '#1e293b';
-      secondaryColor = '#334155';
-      widgetStyle = 'bubble';
     }
 
-    return NextResponse.json({ text: textContent, primaryColor, secondaryColor, widgetStyle });
+    return NextResponse.json({
+      text: textContent,
+      primaryColor,
+      secondaryColor,
+      widgetStyle: visual.widgetStyle,
+    });
   } catch {
     return NextResponse.json({ error: 'No se pudo acceder a la URL' }, { status: 422 });
   }
