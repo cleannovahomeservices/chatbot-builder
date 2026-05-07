@@ -61,16 +61,20 @@ async function takeScreenshot(url: string): Promise<string | null> {
     ssUrl.searchParams.set('viewport_width', '1280');
     ssUrl.searchParams.set('viewport_height', '900');
     ssUrl.searchParams.set('full_page', 'true');
-    ssUrl.searchParams.set('full_page_max_height', '4000');
     ssUrl.searchParams.set('image_quality', '72');
     ssUrl.searchParams.set('block_ads', 'true');
     ssUrl.searchParams.set('block_cookie_banners', 'true');
-    ssUrl.searchParams.set('timeout', '20');
-    ssUrl.searchParams.set('delay', '1500');
+    ssUrl.searchParams.set('timeout', '30');
+    ssUrl.searchParams.set('delay', '4000');
 
-    const res = await fetch(ssUrl.toString(), { signal: AbortSignal.timeout(25_000) });
-    if (!res.ok) { console.error('[screenshot] failed:', res.status); return null; }
+    const res = await fetch(ssUrl.toString(), { signal: AbortSignal.timeout(40_000) });
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => '');
+      console.error('[screenshot] failed:', res.status, errBody.slice(0, 200));
+      return null;
+    }
     const buf = await res.arrayBuffer();
+    console.log(`[screenshot] ok for ${url}, size=${buf.byteLength}`);
     return Buffer.from(buf).toString('base64');
   } catch (e) {
     console.error('[screenshot] error:', e);
