@@ -142,6 +142,20 @@ function extractInternalLinks(html: string, baseUrl: string): string[] {
 
 const BOT_UA = 'Mozilla/5.0 (compatible; ChatbotBuilder/1.0; +https://chatbot-builder-iota.vercel.app)';
 
+// Pick the most saturated non-black/white hex from a list — last-resort color recovery.
+function mostSaturated(hexList: string[]): string | null {
+  let best: { hex: string; sat: number } | null = null;
+  for (const hex of hexList) {
+    const r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16);
+    const max = Math.max(r, g, b), min = Math.min(r, g, b);
+    const lum = (max + min) / 510;
+    if (lum < 0.04 || lum > 0.96) continue; // pure black/white
+    const sat = max === 0 ? 0 : (max - min) / max;
+    if (!best || sat > best.sat) best = { hex, sat };
+  }
+  return best && best.sat > 0.04 ? best.hex : null;
+}
+
 export async function POST(request: NextRequest) {
   const user = await getSession();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -157,7 +171,55 @@ export async function POST(request: NextRequest) {
 
     const rawText = extractText(html);
     const jsonLd = extractJsonLd(html);
-    const colors = extractColors(html);
+    let colors = extractColors(html);
+
+    // --- Multi-pass color extraction when inline styles have no brand color ---
+
+    // Pass 2: web app manifest (theme_color is the explicit brand color)
+    if (!colors) {
+      const manifestHref = html.match(/<link[^>]+rel="manifest"[^>]+href="([^"]+)"/i)?.[1]
+        ?? html.match(/<link[^>]+href="([^"]+)"[^>]+rel="manifest"/i)?.[1];
+      if (manifestHref) {
+        try {
+          const mUrl = new URL(manifestHref, url).href;
+          const mRes = await fetch(mUrl, { headers: { 'User-Agent': BOT_UA }, signal: AbortSignal.timeout(3_000) });
+          const manifest = await mRes.json() as Record<string, unknown>;
+          const tc = manifest.theme_color as string | undefined;
+          if (tc && /^#[0-9a-fA-F]{6}$/.test(tc) && !isNeutral(tc.toLowerCase())) {
+            const primary = tc.toLowerCase();
+            colors = { primary, secondary: darken(primary) };
+          }
+        } catch { /* ignore */ }
+      }
+    }
+
+    // Pass 3: first external stylesheet (modern SPAs put all CSS in separate .css files)
+    if (!colors) {
+      const cssHrefs = [...html.matchAll(/<link[^>]+rel="stylesheet"[^>]+href="([^"]+)"/gi)]
+        .map(m => m[1])
+        .filter(h => !h.includes('fonts.google') && !h.includes('font-awesome') && !h.includes('cdn.jsdelivr'));
+      for (const cssHref of cssHrefs.slice(0, 2)) {
+        try {
+          const cssUrl = new URL(cssHref, url).href;
+          const cssRes = await fetch(cssUrl, { headers: { 'User-Agent': BOT_UA }, signal: AbortSignal.timeout(4_000) });
+          const cssText = await cssRes.text();
+          colors = extractColors(`<style>${cssText.slice(0, 60_000)}</style>`);
+          if (colors) break;
+        } catch { /* ignore */ }
+      }
+    }
+
+    // Pass 4: relax neutral filter — take the most saturated hex anywhere in the full HTML
+    if (!colors) {
+      const allHex = [...html.matchAll(/#([0-9a-fA-F]{6})\b/g)].map(m => '#' + m[1].toLowerCase());
+      const primary = mostSaturated([...new Set(allHex)]);
+      if (primary) colors = { primary, secondary: darken(primary) };
+    }
+
+    // Pass 5: absolute fallback — professional dark slate rather than a random purple
+    if (!colors) {
+      colors = { primary: '#1e293b', secondary: '#334155' };
+    }
 
     // Scrape sub-pages that likely contain prices / services / contact info
     const subLinks = extractInternalLinks(html, url);
@@ -180,8 +242,8 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       text: combined,
-      primaryColor: colors?.primary ?? null,
-      secondaryColor: colors?.secondary ?? null,
+      primaryColor: colors.primary,
+      secondaryColor: colors.secondary,
     });
   } catch {
     return NextResponse.json({ error: 'No se pudo acceder a la URL' }, { status: 422 });
