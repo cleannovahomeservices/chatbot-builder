@@ -68,7 +68,7 @@ async function fetchSubpagesWithJina(html: string, jinaText: string, baseUrl: st
     'clase','clases','retiro','retiros','practica','practicas','sesion','sesiones',
     'taller','talleres','formacion','curso','actividad','programa','respiracion',
     'sobre','coach','yoga','meditacion','bienestar','workshop','retreat','training',
-    'course','nosotros','trabajo','oferta','evento','evento',
+    'course','nosotros','trabajo','oferta','evento','voz','terapeutica','musica',
   ];
   const seen = new Set<string>([baseUrl, baseUrl.replace(/\/$/, ''), baseUrl + '/']);
   const links: string[] = [];
@@ -276,6 +276,33 @@ async function extractColorsFromStylesheets(url: string): Promise<{ primary: str
   } catch { return null; }
 }
 
+// ─── Proactive probe for SPAs where homepage nav links aren't captured ───────
+// When link-discovery finds nothing and content is sparse, try common paths directly.
+async function probeKeyPages(baseUrl: string): Promise<string> {
+  const base = new URL(baseUrl);
+  const paths = [
+    '/servicios', '/services', '/service',
+    '/contacto', '/contact',
+    '/sobre', '/sobre-mi', '/about',
+    '/precios', '/pricing',
+    '/clases', '/retiros', '/talleres',
+  ];
+  console.log('[probe] sparse content — probing common paths');
+  const results = await Promise.allSettled(
+    paths.map(async path => {
+      const fullUrl = `${base.origin}${path}`;
+      const text = await fetchJinaText(fullUrl);
+      if (text.length < 150) return '';
+      console.log(`[probe] hit: ${fullUrl} (${text.length} chars)`);
+      return `\n\n[${fullUrl}]\n${text}`;
+    })
+  );
+  return results
+    .filter((r): r is PromiseFulfilledResult<string> => r.status === 'fulfilled' && r.value.length > 100)
+    .map(r => r.value)
+    .join('');
+}
+
 // ─── HTML text extraction (last-resort fallback) ─────────────────────────────
 function extractText(html: string): string {
   return html.replace(/<script[\s\S]*?<\/script>/gi, '').replace(/<style[\s\S]*?<\/style>/gi, '')
@@ -403,14 +430,38 @@ export async function POST(request: NextRequest) {
     const jinaSubpages = html ? await fetchSubpagesWithJina(html, jinaText, url) : '';
     if (jinaSubpages) console.log(`[jina-subpages] got ${jinaSubpages.length} chars`);
 
-    // Text: Apify > Jina > HTML fallback (subpage content appended to whichever wins)
+    // Proactive probe: when link-discovery finds nothing and homepage content is sparse,
+    // try common paths directly (/servicios, /contacto, /sobre, etc.).
+    // Handles SPAs where Jina renders homepage text but not navigation links.
+    const mainTextLen = (apifyText ?? jinaText).length;
+    const probePages = (!jinaSubpages && mainTextLen < 5000)
+      ? await probeKeyPages(url)
+      : '';
+    if (probePages) console.log(`[probe] got ${probePages.length} chars`);
+
+    // After fetching subpages/probe: extract social links from that additional content too
+    const extraText = jinaSubpages + probePages;
+    if (extraText) {
+      const extraSocial = extractSocialLinks(extraText, extraText);
+      if (extraSocial) {
+        for (const line of extraSocial.split('\n').filter(Boolean)) {
+          const url2 = line.split(': ')[1] ?? '';
+          if (url2 && !contactInfo.toLowerCase().includes(url2.toLowerCase().slice(8, 32))) {
+            contactInfo = contactInfo ? `${contactInfo}\n${line}` : line;
+            console.log('[scrape] social from subpages:', line);
+          }
+        }
+      }
+    }
+
+    // Text: Apify > Jina > HTML fallback (subpage + probe content appended to whichever wins)
     let textContent: string;
     if (apifyText) {
       console.log('[scrape] using apify text');
-      textContent = injectContactIfMissing(apifyText + jinaSubpages, contactInfo);
+      textContent = injectContactIfMissing(apifyText + jinaSubpages + probePages, contactInfo);
     } else if (jinaText && jinaText.length > 100) {
       console.log('[scrape] using jina text');
-      textContent = injectContactIfMissing(jinaText + jinaSubpages, contactInfo);
+      textContent = injectContactIfMissing(jinaText + jinaSubpages + probePages, contactInfo);
     } else if (html) {
       console.log('[scrape] fallback to html scraping');
       const rawText = extractText(html);
