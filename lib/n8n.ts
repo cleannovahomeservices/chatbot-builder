@@ -1,6 +1,9 @@
+import https from 'https';
+import { URL } from 'url';
+
 const N8N_BASE = process.env.N8N_BASE_URL!;
 
-const n8nHeaders = {
+const n8nHeaders: Record<string, string> = {
   'X-N8N-API-KEY': process.env.N8N_API_KEY!,
   'Content-Type': 'application/json',
 };
@@ -10,6 +13,42 @@ export interface WorkflowResult {
   webhookUrl: string;
 }
 
+// Connects via IP (bypasses broken DNS) but validates SSL against the real hostname.
+// N8N_FALLBACK_IP is set in Vercel env vars when the easypanel DNS is unreachable.
+async function n8nRequest<T = unknown>(path: string, method: string, body?: unknown): Promise<T | null> {
+  const baseUrl = new URL(N8N_BASE);
+  const fallbackIp = process.env.N8N_FALLBACK_IP;
+
+  const options: https.RequestOptions = {
+    hostname: fallbackIp ?? baseUrl.hostname,
+    port: Number(baseUrl.port) || 443,
+    path,
+    method,
+    headers: {
+      ...n8nHeaders,
+      Host: baseUrl.hostname,
+    },
+    servername: baseUrl.hostname, // SNI — SSL cert validated against real hostname
+  };
+
+  return new Promise((resolve, reject) => {
+    const req = https.request(options, (res) => {
+      let data = '';
+      res.on('data', (chunk) => (data += chunk));
+      res.on('end', () => {
+        if (res.statusCode && res.statusCode >= 400) {
+          reject(new Error(`n8n HTTP ${res.statusCode}: ${data}`));
+        } else {
+          resolve(data ? (JSON.parse(data) as T) : null);
+        }
+      });
+    });
+    req.on('error', reject);
+    if (body) req.write(JSON.stringify(body));
+    req.end();
+  });
+}
+
 export async function createChatbotWorkflow(
   name: string,
   systemPrompt: string,
@@ -17,38 +56,19 @@ export async function createChatbotWorkflow(
 ): Promise<WorkflowResult> {
   const template = buildWorkflow(name, systemPrompt);
 
-  console.log('[n8n] connecting to:', N8N_BASE);
-  let res: Response;
-  try {
-    res = await fetch(`${N8N_BASE}/api/v1/workflows`, {
-      method: 'POST',
-      headers: n8nHeaders,
-      body: JSON.stringify(template),
-    });
-  } catch (fetchErr) {
-    const cause = fetchErr instanceof Error ? (fetchErr as NodeJS.ErrnoException).cause ?? fetchErr.message : String(fetchErr);
-    console.error('[n8n] fetch failed — cause:', cause);
-    throw new Error(`n8n no accesible (${cause})`);
-  }
+  const workflow = await n8nRequest<{
+    id: string | number;
+    nodes: { type: string; webhookId?: string }[];
+  }>('/api/v1/workflows', 'POST', template);
 
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`n8n error: ${err}`);
-  }
+  if (!workflow) throw new Error('n8n no devolvió respuesta al crear el workflow');
 
-  const workflow = await res.json();
-
-  // n8n auto-assigns webhookId to the chatTrigger node — read it from the response
   const chatTriggerNode = workflow.nodes?.find(
-    (n: { type: string; webhookId?: string }) =>
-      n.type === '@n8n/n8n-nodes-langchain.chatTrigger'
+    (n) => n.type === '@n8n/n8n-nodes-langchain.chatTrigger'
   );
-  const webhookId: string = chatTriggerNode?.webhookId ?? workflow.id;
+  const webhookId = chatTriggerNode?.webhookId ?? String(workflow.id);
 
-  await fetch(`${N8N_BASE}/api/v1/workflows/${workflow.id}/activate`, {
-    method: 'POST',
-    headers: n8nHeaders,
-  });
+  await n8nRequest(`/api/v1/workflows/${workflow.id}/activate`, 'POST');
 
   return {
     workflowId: String(workflow.id),
@@ -57,18 +77,12 @@ export async function createChatbotWorkflow(
 }
 
 export async function deleteWorkflow(workflowId: string): Promise<void> {
-  await fetch(`${N8N_BASE}/api/v1/workflows/${workflowId}`, {
-    method: 'DELETE',
-    headers: n8nHeaders,
-  });
+  await n8nRequest(`/api/v1/workflows/${workflowId}`, 'DELETE');
 }
 
 export async function setWorkflowActive(workflowId: string, active: boolean): Promise<void> {
   const action = active ? 'activate' : 'deactivate';
-  await fetch(`${N8N_BASE}/api/v1/workflows/${workflowId}/${action}`, {
-    method: 'POST',
-    headers: n8nHeaders,
-  });
+  await n8nRequest(`/api/v1/workflows/${workflowId}/${action}`, 'POST');
 }
 
 function buildWorkflow(name: string, systemPrompt: string) {
@@ -76,7 +90,6 @@ function buildWorkflow(name: string, systemPrompt: string) {
     name,
     nodes: [
       {
-        // No id / versionId / webhookId — n8n generates unique values per workflow
         parameters: {
           public: true,
           mode: 'webhook',
