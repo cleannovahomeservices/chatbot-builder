@@ -17,11 +17,19 @@ export async function createChatbotWorkflow(
 ): Promise<WorkflowResult> {
   const template = buildWorkflow(name, systemPrompt);
 
-  const res = await fetch(`${N8N_BASE}/api/v1/workflows`, {
-    method: 'POST',
-    headers: n8nHeaders,
-    body: JSON.stringify(template),
-  });
+  console.log('[n8n] connecting to:', N8N_BASE);
+  let res: Response;
+  try {
+    res = await fetch(`${N8N_BASE}/api/v1/workflows`, {
+      method: 'POST',
+      headers: n8nHeaders,
+      body: JSON.stringify(template),
+    });
+  } catch (fetchErr) {
+    const cause = fetchErr instanceof Error ? (fetchErr as NodeJS.ErrnoException).cause ?? fetchErr.message : String(fetchErr);
+    console.error('[n8n] fetch failed — cause:', cause);
+    throw new Error(`n8n no accesible (${cause})`);
+  }
 
   if (!res.ok) {
     const err = await res.text();
