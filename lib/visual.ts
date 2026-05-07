@@ -43,7 +43,9 @@ async function takeColorScreenshot(url: string): Promise<string | null> {
   }
 }
 
-// Slow screenshot — 7s delay, full page. For content extraction.
+// Content screenshot — 7s delay, tall viewport (NOT full_page).
+// full_page=true produces a very long image that Claude Vision rescales aggressively,
+// making small text (phone numbers, prices) unreadable. A tall viewport keeps resolution.
 async function takeContentScreenshot(url: string): Promise<string | null> {
   const accessKey = process.env.SCREENSHOTONE_ACCESS_KEY;
   if (!accessKey) return null;
@@ -53,9 +55,9 @@ async function takeContentScreenshot(url: string): Promise<string | null> {
     ssUrl.searchParams.set('url', url);
     ssUrl.searchParams.set('format', 'jpg');
     ssUrl.searchParams.set('viewport_width', '1280');
-    ssUrl.searchParams.set('viewport_height', '900');
-    ssUrl.searchParams.set('full_page', 'true');
-    ssUrl.searchParams.set('image_quality', '85');
+    ssUrl.searchParams.set('viewport_height', '1600');
+    ssUrl.searchParams.set('full_page', 'false');
+    ssUrl.searchParams.set('image_quality', '90');
     ssUrl.searchParams.set('block_ads', 'true');
     ssUrl.searchParams.set('block_cookie_banners', 'true');
     ssUrl.searchParams.set('timeout', '45');
@@ -211,7 +213,8 @@ Devuelve SOLO este JSON sin markdown:
 businessInfo debe incluir TODO lo que encuentres:
 - Nombre exacto del negocio
 - Dirección completa
-- Teléfono/WhatsApp/email (busca en imágenes, texto y contactBlock)
+- Teléfono y/o WhatsApp: LEE CON CUIDADO las imágenes buscando cualquier número de teléfono visible (formato español: 6XX XXX XXX o +34...). También está en el contactBlock si aparece arriba.
+- Email si lo hay
 - Todos los servicios con precios EXACTOS
 - Horarios por día de la semana
 - Promociones vigentes
