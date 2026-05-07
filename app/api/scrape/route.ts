@@ -253,12 +253,11 @@ export async function POST(request: NextRequest) {
       extractColorsFromStylesheets(url),
     ]);
 
-    // CSS extraction reads exact color values from source code → more reliable than Claude Vision
-    // Screenshot colors used only when CSS extraction finds nothing
-    const screenshotPrimary = visual.primaryColor !== '#1e293b' ? visual.primaryColor : undefined;
-    const screenshotSecondary = visual.secondaryColor !== '#334155' ? visual.secondaryColor : undefined;
-    const primaryColor = cssColors?.primary ?? screenshotPrimary;
-    const secondaryColor = cssColors?.secondary ?? screenshotSecondary;
+    // Screenshot (Claude Haiku, focused prompt) → primary source for colors
+    // CSS extraction → fallback when screenshot fails
+    const screenshotHasColors = visual.primaryColor !== '#1e293b' && visual.secondaryColor !== '#334155';
+    const primaryColor = screenshotHasColors ? visual.primaryColor : cssColors?.primary;
+    const secondaryColor = screenshotHasColors ? visual.secondaryColor : cssColors?.secondary;
 
     if (visual.businessInfo) {
       return NextResponse.json({
