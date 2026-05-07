@@ -38,7 +38,7 @@ async function scrapeWithApify(url: string): Promise<string | null> {
   }
 }
 
-// ─── Jina AI: JS-rendering text reader (free, parallel backup) ───────────────
+// ─── Jina AI: JS-rendering text reader ───────────────────────────────────────
 async function fetchJinaText(url: string): Promise<string> {
   try {
     const res = await fetch(`https://r.jina.ai/${url}`, {
@@ -47,12 +47,37 @@ async function fetchJinaText(url: string): Promise<string> {
     });
     if (!res.ok) { console.error('[jina] failed:', res.status); return ''; }
     const text = await res.text();
-    console.log(`[jina] ok, ${text.length} chars`);
-    return text.slice(0, 20000);
+    console.log(`[jina] ok for ${url}, ${text.length} chars`);
+    return text.slice(0, 15000);
   } catch (e) {
     console.error('[jina] error:', e);
     return '';
   }
+}
+
+// Fetches keyword-matched subpages with Jina (services, prices, contact, hours…)
+async function fetchSubpagesWithJina(html: string, baseUrl: string): Promise<string> {
+  const base = new URL(baseUrl);
+  const keywords = ['precio','tarifa','servicio','menu','carta','catalogo','producto','contacto','horario','tratamiento','reserva','cita','nosotros','oferta','service','pricing','price','product','contact','about','hours','team','equipo'];
+  const seen = new Set<string>();
+  const links: string[] = [];
+  for (const m of html.matchAll(/href="([^"#][^"]*?)"/gi)) {
+    try {
+      const u = new URL(m[1], baseUrl);
+      if (u.hostname !== base.hostname) continue;
+      u.hash = ''; u.search = '';
+      const href = u.href;
+      if (href === baseUrl || seen.has(href)) continue;
+      if (keywords.some(k => href.toLowerCase().includes(k))) { seen.add(href); links.push(href); }
+    } catch { /* skip */ }
+  }
+  if (links.length === 0) return '';
+  console.log(`[jina-subpages] fetching ${Math.min(links.length, 3)} subpages`);
+  const results = await Promise.allSettled(links.slice(0, 3).map(link => fetchJinaText(link)));
+  return results
+    .filter((r): r is PromiseFulfilledResult<string> => r.status === 'fulfilled' && r.value.length > 50)
+    .map((r, i) => `\n\n[${links[i]}]\n${r.value}`)
+    .join('');
 }
 
 // ─── JS bundle extraction: finds wa.me/phone in compiled Vite/React bundles ──
@@ -300,14 +325,19 @@ export async function POST(request: NextRequest) {
 
     if (contactInfo) console.log('[scrape] final contactInfo:', contactInfo);
 
-    // Text: Apify > Jina > HTML fallback
+    // Jina subpages: fetch keyword-matched subpages in parallel (services, prices, contact…)
+    // Runs after html is available so we have the links. Adds content Apify/Jina homepage might miss.
+    const jinaSubpages = html ? await fetchSubpagesWithJina(html, url) : '';
+    if (jinaSubpages) console.log(`[jina-subpages] got ${jinaSubpages.length} chars`);
+
+    // Text: Apify > Jina > HTML fallback (subpage content appended to whichever wins)
     let textContent: string;
     if (apifyText) {
       console.log('[scrape] using apify text');
-      textContent = injectContactIfMissing(apifyText, contactInfo);
+      textContent = injectContactIfMissing(apifyText + jinaSubpages, contactInfo);
     } else if (jinaText && jinaText.length > 100) {
       console.log('[scrape] using jina text');
-      textContent = injectContactIfMissing(jinaText, contactInfo);
+      textContent = injectContactIfMissing(jinaText + jinaSubpages, contactInfo);
     } else if (html) {
       console.log('[scrape] fallback to html scraping');
       const rawText = extractText(html);
