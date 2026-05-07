@@ -43,6 +43,9 @@ async function n8nRequest<T = unknown>(path: string, method: string, body?: unkn
         }
       });
     });
+    req.setTimeout(15000, () => {
+      req.destroy(new Error('n8n request timeout (15s)'));
+    });
     req.on('error', reject);
     if (body) req.write(JSON.stringify(body));
     req.end();

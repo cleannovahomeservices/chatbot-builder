@@ -147,7 +147,8 @@ export async function injectWidget(
   if (!injectResult) {
     const htmlFiles = files
       .filter((f) => (f.endsWith('.html') || f.endsWith('.htm')) && !f.includes('/vendor/'))
-      .sort((a, b) => a.split('/').length - b.split('/').length || a.length - b.length);
+      .sort((a, b) => a.split('/').length - b.split('/').length || a.length - b.length)
+      .slice(0, 5);
 
     for (const path of htmlFiles) {
       const result = await tryInjectIntoMarkupFile(token, owner, repo, path, webhookUrl, chatbotName, appUrl);
@@ -156,16 +157,15 @@ export async function injectWidget(
   }
 
   if (!injectResult) {
-    // PHP, Blade, and similar server-side templates: prioritise footer/index/home files
+    // PHP/Blade templates: try up to 5, prioritising footer/index/home
     const phpFiles = files
       .filter((f) => (f.endsWith('.php') || f.endsWith('.blade.php')) && !f.includes('/vendor/') && !f.includes('/node_modules/'))
       .sort((a, b) => {
-        const priority = (p: string) => {
-          if (/\/(footer|index|home|default)\.[^/]*$/.test(p) || /^(footer|index|home|default)\.[^/]*$/.test(p)) return 0;
-          return 1;
-        };
+        const priority = (p: string) =>
+          /\/(footer|index|home|default)\.[^/]*$/.test(p) || /^(footer|index|home|default)\.[^/]*$/.test(p) ? 0 : 1;
         return priority(a) - priority(b) || a.split('/').length - b.split('/').length || a.length - b.length;
-      });
+      })
+      .slice(0, 5);
 
     for (const path of phpFiles) {
       const result = await tryInjectIntoMarkupFile(token, owner, repo, path, webhookUrl, chatbotName, appUrl);
