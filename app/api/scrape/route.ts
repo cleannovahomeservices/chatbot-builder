@@ -56,27 +56,49 @@ async function fetchJinaText(url: string): Promise<string> {
 }
 
 // Fetches keyword-matched subpages with Jina (services, prices, contact, hours…)
-async function fetchSubpagesWithJina(html: string, baseUrl: string): Promise<string> {
+// Parses links from BOTH raw HTML (static sites) and Jina markdown (SPAs where HTML is just a shell).
+async function fetchSubpagesWithJina(html: string, jinaText: string, baseUrl: string): Promise<string> {
   const base = new URL(baseUrl);
-  const keywords = ['precio','tarifa','servicio','menu','carta','catalogo','producto','contacto','horario','tratamiento','reserva','cita','nosotros','oferta','service','pricing','price','product','contact','about','hours','team','equipo'];
-  const seen = new Set<string>();
+  const keywords = [
+    // Commerce / services
+    'precio','tarifa','servicio','menu','carta','catalogo','producto','contacto','horario',
+    'tratamiento','reserva','cita','oferta','service','pricing','price','product','contact',
+    'about','hours','team','equipo','info',
+    // Wellness / coaching / courses (critical for spas, yoga, coaching, breathwork sites)
+    'clase','clases','retiro','retiros','practica','practicas','sesion','sesiones',
+    'taller','talleres','formacion','curso','actividad','programa','respiracion',
+    'sobre','coach','yoga','meditacion','bienestar','workshop','retreat','training',
+    'course','nosotros','trabajo','oferta','evento','evento',
+  ];
+  const seen = new Set<string>([baseUrl, baseUrl.replace(/\/$/, ''), baseUrl + '/']);
   const links: string[] = [];
-  for (const m of html.matchAll(/href="([^"#][^"]*?)"/gi)) {
+
+  const addLink = (raw: string, base2 = baseUrl) => {
     try {
-      const u = new URL(m[1], baseUrl);
-      if (u.hostname !== base.hostname) continue;
+      const u = new URL(raw, base2);
+      if (u.hostname !== base.hostname) return;
       u.hash = ''; u.search = '';
       const href = u.href;
-      if (href === baseUrl || seen.has(href)) continue;
+      if (seen.has(href)) return;
       if (keywords.some(k => href.toLowerCase().includes(k))) { seen.add(href); links.push(href); }
     } catch { /* skip */ }
-  }
+  };
+
+  // Raw HTML hrefs (works for static/SSR sites)
+  for (const m of html.matchAll(/href="([^"#][^"]*?)"/gi)) addLink(m[1]);
+
+  // Jina markdown links — absolute [text](https://...) and relative [text](/path)
+  // This is the critical path for SPAs where raw HTML is just a JS shell
+  for (const m of jinaText.matchAll(/\]\((https?:\/\/[^\)\s]+)\)/g)) addLink(m[1]);
+  for (const m of jinaText.matchAll(/\]\((\/[^\)\s)]+)\)/g)) addLink(m[1]);
+
   if (links.length === 0) return '';
-  console.log(`[jina-subpages] fetching ${Math.min(links.length, 3)} subpages`);
-  const results = await Promise.allSettled(links.slice(0, 3).map(link => fetchJinaText(link)));
+  const toFetch = links.slice(0, 4);
+  console.log(`[jina-subpages] fetching ${toFetch.length} subpages:`, toFetch);
+  const results = await Promise.allSettled(toFetch.map(link => fetchJinaText(link)));
   return results
     .filter((r): r is PromiseFulfilledResult<string> => r.status === 'fulfilled' && r.value.length > 50)
-    .map((r, i) => `\n\n[${links[i]}]\n${r.value}`)
+    .map((r, i) => `\n\n[${toFetch[i]}]\n${r.value}`)
     .join('');
 }
 
@@ -269,7 +291,7 @@ function extractJsonLd(html: string): string {
 }
 function extractInternalLinks(html: string, baseUrl: string): string[] {
   const base = new URL(baseUrl); const seen = new Set<string>(); const links: string[] = [];
-  const kw = ['precio','tarifa','servicio','menu','carta','catalogo','producto','contacto','horario','tratamiento','reserva','cita','nosotros','oferta','service','pricing','price','product','contact','about','hours'];
+  const kw = ['precio','tarifa','servicio','menu','carta','catalogo','producto','contacto','horario','tratamiento','reserva','cita','nosotros','oferta','service','pricing','price','product','contact','about','hours','clase','clases','retiro','retiros','practica','practicas','sesion','sesiones','taller','talleres','formacion','curso','actividad','programa','sobre','coach','yoga','meditacion','bienestar','workshop','retreat','training','course'];
   for (const m of html.matchAll(/href="([^"#][^"]*?)"/gi)) { try { const u = new URL(m[1], baseUrl); if (u.hostname !== base.hostname) continue; u.hash = ''; u.search = ''; const h = u.href; if (h === baseUrl || seen.has(h)) continue; if (kw.some(k => h.toLowerCase().includes(k))) { seen.add(h); links.push(h); } } catch { /* skip */ } }
   return links.slice(0, 3);
 }
@@ -377,8 +399,8 @@ export async function POST(request: NextRequest) {
     if (contactInfo) console.log('[scrape] final contactInfo:', contactInfo);
 
     // Jina subpages: fetch keyword-matched subpages in parallel (services, prices, contact…)
-    // Runs after html is available so we have the links. Adds content Apify/Jina homepage might miss.
-    const jinaSubpages = html ? await fetchSubpagesWithJina(html, url) : '';
+    // Parses links from both raw HTML and Jina markdown — critical for SPAs where HTML is a JS shell.
+    const jinaSubpages = html ? await fetchSubpagesWithJina(html, jinaText, url) : '';
     if (jinaSubpages) console.log(`[jina-subpages] got ${jinaSubpages.length} chars`);
 
     // Text: Apify > Jina > HTML fallback (subpage content appended to whichever wins)

@@ -51,12 +51,13 @@ REGLAS CRÍTICAS — debes seguirlas sin excepción:
    BIEN: "Nuestros servicios y precios: Corte de pelo 15 €, Arreglo de barba 10 €, Corte + barba 20 €."
 
 2. Incluye SIEMPRE (si están en el contenido):
-   - Nombre exacto del negocio
+   - Nombre exacto del negocio o espacio
+   - Nombre del profesional, fundador o responsable del proyecto
    - Dirección y barrio/ciudad
    - Teléfono, WhatsApp o email de contacto
    - Redes sociales con sus URLs completas (Instagram, YouTube, TikTok, Facebook, etc.)
-   - Todos los servicios con sus precios exactos (usa una lista clara)
-   - Horarios de apertura por día de la semana
+   - Todos los servicios, clases, talleres o retiros con sus precios exactos (usa una lista clara)
+   - Horarios de apertura o disponibilidad por día de la semana
    - Promociones o descuentos vigentes
 
 3. Si una información NO aparece en el contenido, NO la inventes. Omítela o indica que el cliente debe consultar directamente.
