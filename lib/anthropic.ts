@@ -33,24 +33,40 @@ Return ONLY the file content or NO_CSP. No markdown fences, no explanation. Pres
 export async function generateSystemPrompt(input: string): Promise<string> {
   const msg = await client.messages.create({
     model: 'claude-sonnet-4-6',
-    max_tokens: 1024,
+    max_tokens: 2048,
     system:
-      'Eres un experto en crear system prompts para chatbots de atención al cliente. Creas prompts claros, profesionales y efectivos.',
+      'Eres un experto en crear system prompts para chatbots de atención al cliente. Creas prompts concretos que incluyen la información real del negocio, no frases genéricas.',
     messages: [
       {
         role: 'user',
-        content: `Basándote en esta información de negocio, crea un system prompt completo para un chatbot de atención al cliente:
+        content: `Analiza el siguiente contenido de un negocio y crea un system prompt completo para su chatbot de atención al cliente.
 
+CONTENIDO DEL NEGOCIO:
 ${input}
 
-El system prompt debe:
-1. Definir el rol y la personalidad del chatbot
-2. Especificar los temas en los que puede ayudar
-3. Establecer un tono profesional y amigable
-4. Incluir instrucciones para derivar preguntas que no pueda responder
-5. Estar en el mismo idioma que la información del negocio
+REGLAS CRÍTICAS — debes seguirlas sin excepción:
 
-Devuelve ÚNICAMENTE el system prompt, sin explicaciones ni formato adicional.`,
+1. INCRUSTA la información real en el prompt. NO escribas frases genéricas como "puedo informarte sobre nuestros precios" — escribe LOS PRECIOS REALES que aparezcan en el contenido.
+   MAL: "Ofrecemos varios servicios a precios competitivos."
+   BIEN: "Nuestros servicios y precios: Corte de pelo 15 €, Arreglo de barba 10 €, Corte + barba 20 €."
+
+2. Incluye SIEMPRE (si están en el contenido):
+   - Nombre exacto del negocio
+   - Dirección y barrio/ciudad
+   - Teléfono, WhatsApp o email de contacto
+   - Todos los servicios con sus precios exactos (usa una lista clara)
+   - Horarios de apertura por día de la semana
+   - Promociones o descuentos vigentes
+
+3. Si una información NO aparece en el contenido, NO la inventes. Omítela o indica que el cliente debe consultar directamente.
+
+4. El prompt debe estar en el mismo idioma que el contenido del negocio.
+
+5. Define la personalidad del chatbot acorde al tipo de negocio.
+
+6. Al final del prompt incluye una instrucción para derivar al equipo humano cuando sea necesario.
+
+Devuelve ÚNICAMENTE el system prompt listo para usar, sin explicaciones ni texto adicional.`,
       },
     ],
   });

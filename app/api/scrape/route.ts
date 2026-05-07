@@ -67,10 +67,22 @@ function extractJsonLd(html: string): string {
 }
 
 function extractText(html: string): string {
-  // Remove script/style but keep nav/footer content (often has pricing/services)
-  const cleaned = html
+  let text = html
     .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '');
+
+  // Preserve structure before stripping tags
+  text = text
+    .replace(/<h[1-3][^>]*>/gi, '\n\n## ')
+    .replace(/<h[4-6][^>]*>/gi, '\n\n### ')
+    .replace(/<\/h[1-6]>/gi, '\n')
+    .replace(/<li[^>]*>/gi, '\n- ')
+    .replace(/<\/li>/gi, '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n\n')
+    .replace(/<\/div>/gi, '\n')
+    .replace(/<\/tr>/gi, '\n')
+    .replace(/<t[dh][^>]*>/gi, ' | ')
     .replace(/<[^>]+>/g, ' ')
     .replace(/&nbsp;/g, ' ')
     .replace(/&amp;/g, '&')
@@ -78,11 +90,47 @@ function extractText(html: string): string {
     .replace(/&gt;/g, '>')
     .replace(/&euro;/g, '€')
     .replace(/&#8364;/g, '€')
-    .replace(/\s+/g, ' ')
+    .replace(/&apos;/g, "'")
+    .replace(/&#39;/g, "'")
+    .replace(/&quot;/g, '"')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n +/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
     .trim();
 
-  return cleaned;
+  return text;
 }
+
+function extractInternalLinks(html: string, baseUrl: string): string[] {
+  const base = new URL(baseUrl);
+  const keywords = [
+    'precio', 'tarifa', 'servicio', 'menu', 'carta', 'catalogo',
+    'contacto', 'horario', 'tratamiento', 'about', 'service', 'pricing',
+    'barberia', 'peluqueria', 'reserva', 'cita', 'nosotros',
+  ];
+  const seen = new Set<string>();
+  const links: string[] = [];
+
+  for (const m of html.matchAll(/href="([^"#][^"]*?)"/gi)) {
+    try {
+      const url = new URL(m[1], baseUrl);
+      if (url.hostname !== base.hostname) continue;
+      url.hash = '';
+      url.search = '';
+      const href = url.href;
+      if (href === baseUrl || seen.has(href)) continue;
+      const path = href.toLowerCase();
+      if (keywords.some(k => path.includes(k))) {
+        seen.add(href);
+        links.push(href);
+      }
+    } catch { /* skip malformed */ }
+  }
+
+  return links.slice(0, 3);
+}
+
+const BOT_UA = 'Mozilla/5.0 (compatible; ChatbotBuilder/1.0; +https://chatbot-builder-iota.vercel.app)';
 
 export async function POST(request: NextRequest) {
   const user = await getSession();
@@ -92,18 +140,33 @@ export async function POST(request: NextRequest) {
 
   try {
     const res = await fetch(url, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; ChatbotBuilder/1.0; +https://chatbot-builder-iota.vercel.app)' },
-      signal: AbortSignal.timeout(12_000),
+      headers: { 'User-Agent': BOT_UA },
+      signal: AbortSignal.timeout(10_000),
     });
     const html = await res.text();
 
     const rawText = extractText(html);
     const jsonLd = extractJsonLd(html);
-
-    // Combine: JSON-LD first (most structured, has prices), then page text
-    const combined = [jsonLd, rawText].filter(Boolean).join('\n\n').slice(0, 14000);
-
     const colors = extractColors(html);
+
+    // Scrape sub-pages that likely contain prices / services / contact info
+    const subLinks = extractInternalLinks(html, url);
+    const subResults = await Promise.allSettled(
+      subLinks.slice(0, 2).map(async (link) => {
+        const r = await fetch(link, {
+          headers: { 'User-Agent': BOT_UA },
+          signal: AbortSignal.timeout(5_000),
+        });
+        const h = await r.text();
+        return `\n\n[Sección: ${link}]\n${extractText(h).slice(0, 4000)}`;
+      })
+    );
+    const subTexts = subResults
+      .filter((r): r is PromiseFulfilledResult<string> => r.status === 'fulfilled')
+      .map(r => r.value);
+
+    // JSON-LD first (structured data with prices), then main page, then sub-pages
+    const combined = [jsonLd, rawText, ...subTexts].filter(Boolean).join('\n\n').slice(0, 20000);
 
     return NextResponse.json({
       text: combined,
