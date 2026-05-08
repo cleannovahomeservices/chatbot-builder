@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
   }
 
   const state = crypto.randomBytes(16).toString('hex');
-  const redirectUri = `${process.env.APP_BASE_URL || appUrl}/api/auth/vercel/callback`;
+  const redirectUri = process.env.VERCEL_OAUTH_REDIRECT_URI || `${process.env.APP_BASE_URL || appUrl}/api/auth/vercel/callback`;
   const oauthUrl = getVercelOAuthUrl(state, redirectUri);
 
   const cookieDomain = process.env.NODE_ENV === 'production' ? '.botluma.com' : undefined;

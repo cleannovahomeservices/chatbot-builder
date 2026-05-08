@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const redirectUri = `${process.env.APP_BASE_URL || appUrl}/api/auth/vercel/callback`;
+    const redirectUri = process.env.VERCEL_OAUTH_REDIRECT_URI || `${process.env.APP_BASE_URL || appUrl}/api/auth/vercel/callback`;
     console.log('[vercel callback] exchanging code, redirectUri:', redirectUri);
     const { access_token, refresh_token } = await exchangeVercelCode(code, redirectUri);
     console.log('[vercel callback] token exchange OK, has refresh_token:', !!refresh_token);
