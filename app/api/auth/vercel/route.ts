@@ -1,24 +1,48 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { validateVercelToken } from '@/lib/vercel-client';
+import { getVercelOAuthUrl } from '@/lib/vercel-client';
+import crypto from 'crypto';
 
-export async function POST(request: NextRequest) {
+export async function GET(request: NextRequest) {
   const user = await getSession();
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const appUrl = new URL(request.url).origin;
+  if (!user) return NextResponse.redirect(`${appUrl}/login`);
 
-  const { token } = await request.json();
-  if (!token?.trim()) return NextResponse.json({ error: 'Token requerido' }, { status: 400 });
+  const next = new URL(request.url).searchParams.get('next') || '/create';
 
-  try {
-    const { username } = await validateVercelToken(token);
-    const db = createAdminClient();
-    await db.from('users').update({ vercel_access_token: token }).eq('id', user.id);
-    return NextResponse.json({ ok: true, username });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Token inválido';
-    return NextResponse.json({ error: msg }, { status: 400 });
+  // If already connected, skip OAuth
+  const db = createAdminClient();
+  const { data } = await db
+    .from('users')
+    .select('vercel_access_token')
+    .eq('id', user.id)
+    .single();
+  if (data?.vercel_access_token) {
+    return NextResponse.redirect(`${appUrl}${next}`);
   }
+
+  const state = crypto.randomBytes(16).toString('hex');
+  const redirectUri = `${appUrl}/api/auth/vercel/callback`;
+  const oauthUrl = getVercelOAuthUrl(state, redirectUri);
+
+  const response = NextResponse.redirect(oauthUrl);
+  response.cookies.set('vercel_oauth_state', state, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    maxAge: 600,
+    path: '/',
+  });
+  response.cookies.set('vercel_post_auth_redirect', `${appUrl}${next}`, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    maxAge: 600,
+    path: '/',
+  });
+
+  return response;
 }
 
 export async function DELETE() {
@@ -26,6 +50,9 @@ export async function DELETE() {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const db = createAdminClient();
-  await db.from('users').update({ vercel_access_token: null }).eq('id', user.id);
+  await db
+    .from('users')
+    .update({ vercel_access_token: null })
+    .eq('id', user.id);
   return NextResponse.json({ ok: true });
 }

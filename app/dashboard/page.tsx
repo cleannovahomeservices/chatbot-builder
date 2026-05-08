@@ -33,9 +33,16 @@ export default async function DashboardPage() {
           <a
             href="/api/auth/github/revoke"
             className="text-xs text-white/30 hover:text-white/60 transition"
-            title="Revocar y reconectar GitHub con permisos correctos"
+            title="Revocar y reconectar GitHub"
           >
             Reconectar GitHub
+          </a>
+          <a
+            href="/api/auth/vercel"
+            className="text-xs text-white/30 hover:text-white/60 transition"
+            title="Conectar cuenta de Vercel"
+          >
+            {user.vercel_access_token ? 'Vercel ✓' : 'Conectar Vercel'}
           </a>
           {(user.github_avatar_url ?? user.google_avatar_url) && (
             <img

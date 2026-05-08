@@ -93,7 +93,7 @@ export function CreateWizard({
     }
   }
 
-  // Restore wizard state after GitHub linking redirect
+  // Restore wizard state after GitHub or Vercel OAuth redirect
   useEffect(() => {
     const saved = sessionStorage.getItem('wizard_resume');
     if (!saved) return;
@@ -104,15 +104,22 @@ export function CreateWizard({
       if (s.userInput) setUserInput(s.userInput);
       if (s.inputMode) setInputMode(s.inputMode);
       if (s.chatbotName) setChatbotName(s.chatbotName);
-      // Go straight to repo step and reload repos
       setStep('repo');
       setError('');
-      fetch('/api/github/repos').then(async (r) => {
-        if (r.status === 400) { setGithubConnected(false); return; }
-        const d = await r.json();
-        setGithubConnected(true);
-        setRepos(d.repos ?? []);
-      }).catch(() => {});
+      if (s.deployMethod === 'vercel') {
+        setDeployMethod('vercel');
+        fetch('/api/vercel/projects').then(async (r) => {
+          const d = await r.json();
+          if (!d.error) { setVercelConnected(true); setVercelProjects(d.projects ?? []); }
+        }).catch(() => {});
+      } else {
+        fetch('/api/github/repos').then(async (r) => {
+          if (r.status === 400) { setGithubConnected(false); return; }
+          const d = await r.json();
+          setGithubConnected(true);
+          setRepos(d.repos ?? []);
+        }).catch(() => {});
+      }
     } catch {}
   }, []);
 
@@ -533,7 +540,12 @@ export function CreateWizard({
                     <div className="text-4xl mb-3">▲</div>
                     <p className="text-white/50 text-sm mb-4">Conecta tu cuenta de Vercel para ver tus proyectos</p>
                     <button
-                      onClick={() => router.push("/connect-vercel")}
+                      onClick={() => {
+                        sessionStorage.setItem('wizard_resume', JSON.stringify({
+                          prompt, userInput, inputMode, chatbotName, deployMethod: 'vercel',
+                        }));
+                        window.location.href = '/api/auth/vercel?next=/create';
+                      }}
                       className="rounded-xl bg-white px-6 py-2.5 text-sm font-semibold text-black hover:bg-white/90 transition cursor-pointer"
                     >
                       Conectar Vercel →

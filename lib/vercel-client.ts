@@ -1,5 +1,37 @@
 const VERCEL_API = 'https://api.vercel.com';
 
+export function getVercelOAuthUrl(state: string, redirectUri: string): string {
+  const params = new URLSearchParams({
+    client_id: process.env.VERCEL_CLIENT_ID!,
+    redirect_uri: redirectUri,
+    state,
+    response_type: 'code',
+    scope: 'openid email profile offline_access',
+  });
+  return `https://vercel.com/oauth/authorize?${params}`;
+}
+
+export async function exchangeVercelCode(
+  code: string,
+  redirectUri: string
+): Promise<{ access_token: string; refresh_token?: string }> {
+  const res = await fetch(`${VERCEL_API}/v2/oauth/access_token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      code,
+      client_id: process.env.VERCEL_CLIENT_ID!,
+      client_secret: process.env.VERCEL_CLIENT_SECRET!,
+      redirect_uri: redirectUri,
+    }),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Vercel token exchange failed: ${text}`);
+  }
+  return res.json();
+}
+
 export interface VercelProject {
   id: string;
   name: string;
