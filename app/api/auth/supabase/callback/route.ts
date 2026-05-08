@@ -107,6 +107,7 @@ export async function GET(request: NextRequest) {
   if (!user) return NextResponse.redirect(`${appUrl}/?error=auth_failed`);
 
   const sessionToken = await createSession(user);
+  const cookieDomain = process.env.NODE_ENV === 'production' ? '.botluma.com' : undefined;
   const response = NextResponse.redirect(new URL(next, appUrl));
 
   cookieJar.forEach(({ name, value, options }) => {
@@ -119,6 +120,7 @@ export async function GET(request: NextRequest) {
     sameSite: 'lax',
     maxAge: SESSION_DURATION_SECONDS,
     path: '/',
+    domain: cookieDomain,
   });
 
   return response;

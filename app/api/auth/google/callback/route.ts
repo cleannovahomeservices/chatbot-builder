@@ -108,6 +108,7 @@ export async function GET(request: NextRequest) {
     const sessionToken = await createSession(user);
     const redirectTo = request.cookies.get('post_auth_redirect')?.value || `${appUrl}/dashboard`;
 
+    const cookieDomain = process.env.NODE_ENV === 'production' ? '.botluma.com' : undefined;
     const response = NextResponse.redirect(redirectTo);
     response.cookies.set(SESSION_COOKIE_NAME, sessionToken, {
       httpOnly: true,
@@ -115,6 +116,7 @@ export async function GET(request: NextRequest) {
       sameSite: 'lax',
       maxAge: SESSION_DURATION_SECONDS,
       path: '/',
+      domain: cookieDomain,
     });
     response.cookies.delete('google_oauth_state');
     response.cookies.delete('post_auth_redirect');

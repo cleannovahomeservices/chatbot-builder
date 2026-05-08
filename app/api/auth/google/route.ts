@@ -22,10 +22,11 @@ export async function GET(request: NextRequest) {
     }
   );
 
+  const callbackBase = process.env.APP_BASE_URL || appUrl;
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: 'google',
     options: {
-      redirectTo: `${appUrl}/api/auth/supabase/callback`,
+      redirectTo: `${callbackBase}/api/auth/supabase/callback`,
       skipBrowserRedirect: true,
     },
   });
@@ -35,6 +36,7 @@ export async function GET(request: NextRequest) {
   }
 
   const response = NextResponse.redirect(data.url);
+  const cookieDomain = process.env.NODE_ENV === 'production' ? '.botluma.com' : undefined;
 
   cookieJar.forEach(({ name, value, options }) => {
     response.cookies.set(name, value, options as Parameters<typeof response.cookies.set>[2]);
@@ -51,6 +53,7 @@ export async function GET(request: NextRequest) {
     sameSite: 'lax',
     maxAge: 600,
     path: '/',
+    domain: cookieDomain,
   });
 
   return response;

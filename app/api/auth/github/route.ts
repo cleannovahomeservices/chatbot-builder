@@ -39,6 +39,7 @@ export async function GET(request: NextRequest) {
   const state = crypto.randomBytes(16).toString('hex');
   const oauthUrl = getOAuthUrl(state, appUrl);
   const response = NextResponse.redirect(oauthUrl);
+  const cookieDomain = process.env.NODE_ENV === 'production' ? '.botluma.com' : undefined;
 
   response.cookies.set('github_oauth_state', state, {
     httpOnly: true,
@@ -46,6 +47,7 @@ export async function GET(request: NextRequest) {
     sameSite: 'lax',
     maxAge: 600,
     path: '/',
+    domain: cookieDomain,
   });
 
   if (mode && input) {
@@ -55,6 +57,7 @@ export async function GET(request: NextRequest) {
       sameSite: 'lax',
       maxAge: 600,
       path: '/',
+      domain: cookieDomain,
     });
   }
 
@@ -70,6 +73,7 @@ export async function GET(request: NextRequest) {
     sameSite: 'lax',
     maxAge: 600,
     path: '/',
+    domain: cookieDomain,
   });
 
   return response;
