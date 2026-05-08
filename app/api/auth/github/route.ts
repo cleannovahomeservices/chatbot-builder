@@ -37,7 +37,8 @@ export async function GET(request: NextRequest) {
   }
 
   const state = crypto.randomBytes(16).toString('hex');
-  const oauthUrl = getOAuthUrl(state, appUrl);
+  const oauthBase = process.env.APP_BASE_URL || appUrl;
+  const oauthUrl = getOAuthUrl(state, oauthBase);
   const response = NextResponse.redirect(oauthUrl);
   const cookieDomain = process.env.NODE_ENV === 'production' ? '.botluma.com' : undefined;
 
