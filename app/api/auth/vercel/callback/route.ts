@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const redirectUri = `${appUrl}/api/auth/vercel/callback`;
+    const redirectUri = `${process.env.APP_BASE_URL || appUrl}/api/auth/vercel/callback`;
     const { access_token, refresh_token } = await exchangeVercelCode(code, redirectUri);
 
     await validateVercelToken(access_token);

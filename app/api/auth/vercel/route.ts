@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
   }
 
   const state = crypto.randomBytes(16).toString('hex');
-  const redirectUri = `${appUrl}/api/auth/vercel/callback`;
+  const redirectUri = `${process.env.APP_BASE_URL || appUrl}/api/auth/vercel/callback`;
   const oauthUrl = getVercelOAuthUrl(state, redirectUri);
 
   const response = NextResponse.redirect(oauthUrl);
