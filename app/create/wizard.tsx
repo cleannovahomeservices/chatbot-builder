@@ -361,12 +361,12 @@ export function CreateWizard({
                 <p className="text-xs text-white/50 mb-2">Icono del chatbot</p>
                 <div className="flex gap-3">
                   {([
-                    { id: 'chat',   label: 'Líneas', d: 'M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-2 12H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z' },
-                    { id: 'dots',   label: 'Puntos', d: 'M12 2C6.48 2 2 6.48 2 12c0 2.95 1.38 5.56 3.54 7.36L4 22l3.66-1.5C8.93 21.44 10.42 22 12 22c5.52 0 10-4.48 10-10S17.52 2 12 2zm-4 11.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm4 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm4 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z' },
-                    { id: 'single', label: 'Simple', d: 'M12 2C6.48 2 2 6.48 2 12c0 2.95 1.38 5.56 3.54 7.36L4 22l3.66-1.5C8.93 21.44 10.42 22 12 22c5.52 0 10-4.48 10-10S17.52 2 12 2z' },
-                    { id: 'forum',  label: 'Foro',   d: 'M21 6h-2v9H6v2c0 1.1.9 2 2 2h11l4 4V8c0-1.1-.9-2-2-2zm-4-4H2C.9 2 0 2.9 0 4v15.17L3.17 16H17c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z' },
-                    { id: 'pair',   label: 'Par',    d: 'M16 4C12 4 9 6.7 9 10c0 1.8.8 3.4 2.2 4.5l-.8 2.5 2.8-1.2c.8.3 1.8.4 2.8.4 4 0 7-2.7 7-6S20 4 16 4zM8 9C4 9 1 11.7 1 15c0 1.8.8 3.4 2.2 4.5l-.8 2.5 2.8-1.2c.8.3 1.8.4 2.8.4 4 0 7-2.7 7-6S12 9 8 9z' },
-                  ] as const).map(({ id, label, d }) => (
+                    { id: 'chat',   label: 'Líneas', stroke: false, d: 'M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-2 12H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z' },
+                    { id: 'dots',   label: 'Puntos', stroke: false, d: 'M12 2C6.48 2 2 6.48 2 12c0 2.95 1.38 5.56 3.54 7.36L4 22l3.66-1.5C8.93 21.44 10.42 22 12 22c5.52 0 10-4.48 10-10S17.52 2 12 2zm-4 11.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm4 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm4 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z' },
+                    { id: 'single', label: 'Simple', stroke: true,  d: 'M12 2C6.48 2 2 6.48 2 12c0 2.95 1.38 5.56 3.54 7.36L4 22l3.66-1.5C8.93 21.44 10.42 22 12 22c5.52 0 10-4.48 10-10S17.52 2 12 2z' },
+                    { id: 'forum',  label: 'Foro',   stroke: true,  d: 'M1 1h14v10H5l-4 5V1z M9 11h13v10H20l3 3L20 21H9V11z' },
+                    { id: 'pair',   label: 'Par',    stroke: false, d: 'M16 4C12 4 9 6.7 9 10c0 1.8.8 3.4 2.2 4.5l-.8 2.5 2.8-1.2c.8.3 1.8.4 2.8.4 4 0 7-2.7 7-6S20 4 16 4zM8 9C4 9 1 11.7 1 15c0 1.8.8 3.4 2.2 4.5l-.8 2.5 2.8-1.2c.8.3 1.8.4 2.8.4 4 0 7-2.7 7-6S12 9 8 9z' },
+                  ] as const).map(({ id, label, d, stroke }) => (
                     <button
                       key={id}
                       onClick={() => setIconType(id)}
@@ -374,7 +374,10 @@ export function CreateWizard({
                       className={`relative w-12 h-12 rounded-full transition-all cursor-pointer flex items-center justify-center ${iconType === id ? 'ring-2 ring-violet-500 ring-offset-2 ring-offset-[#0A0A0A]' : 'hover:ring-2 hover:ring-white/30 hover:ring-offset-2 hover:ring-offset-[#0A0A0A]'}`}
                       style={{ background: '#2a2a2a' }}
                     >
-                      <svg viewBox="0 0 24 24" className="w-5 h-5 fill-white"><path d={d}/></svg>
+                      {stroke
+                        ? <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d={d}/></svg>
+                        : <svg viewBox="0 0 24 24" className="w-5 h-5 fill-white"><path d={d}/></svg>
+                      }
                     </button>
                   ))}
                 </div>
