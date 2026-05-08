@@ -14,9 +14,17 @@ interface Chatbot {
   primary_color?: string;
   secondary_color?: string;
   widget_style?: string;
+  icon_type?: string;
   system_prompt?: string;
   source_url?: string;
 }
+
+const ICON_OPTIONS = [
+  { id: 'chat',    label: 'Chat',   d: 'M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-2 12H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z' },
+  { id: 'message', label: 'Burbuja', d: 'M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z' },
+  { id: 'dual',    label: 'Doble',  d: 'M15 4v7H5L4 12V4h11zm1-2H3c-.5 0-1 .5-1 1v14l4-4h10c.5 0 1-.5 1-1V3c0-.5-.5-1-1-1zm5 4h-2v9H6v2c0 .5.5 1 1 1h11l4 4V7c0-.5-.5-1-1-1z' },
+  { id: 'dots',    label: 'Puntos', d: 'M20 2H4C2.9 2 2 2.9 2 4v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-5 9.5c0 .8-.7 1.5-1.5 1.5S12 12.3 12 11.5 12.7 10 13.5 10s1.5.7 1.5 1.5zm-4 0c0 .8-.7 1.5-1.5 1.5S8 12.3 8 11.5 8.7 10 9.5 10s1.5.7 1.5 1.5zm8 0c0 .8-.7 1.5-1.5 1.5s-1.5-.7-1.5-1.5.7-1.5 1.5-1.5 1.5.7 1.5 1.5z' },
+] as const;
 
 const WIDGET_STYLES = ['bubble','minimal','rounded','dark','neon','corporate','soft','floating','compact','retro'] as const;
 
@@ -32,6 +40,7 @@ export function ChatbotCard({ chatbot: initial }: { chatbot: Chatbot }) {
   const [editPrimary, setEditPrimary] = useState(chatbot.primary_color || '#7c3aed');
   const [editSecondary, setEditSecondary] = useState(chatbot.secondary_color || '#4338ca');
   const [editStyle, setEditStyle] = useState(chatbot.widget_style || 'bubble');
+  const [editIcon, setEditIcon] = useState(chatbot.icon_type || 'chat');
   const [editPrompt, setEditPrompt] = useState(chatbot.system_prompt || '');
 
   const router = useRouter();
@@ -67,6 +76,7 @@ export function ChatbotCard({ chatbot: initial }: { chatbot: Chatbot }) {
     setEditPrimary(chatbot.primary_color || '#7c3aed');
     setEditSecondary(chatbot.secondary_color || '#4338ca');
     setEditStyle(chatbot.widget_style || 'bubble');
+    setEditIcon(chatbot.icon_type || 'chat');
     setEditPrompt(chatbot.system_prompt || '');
     setSaveError('');
     setPanelOpen(true);
@@ -118,6 +128,7 @@ export function ChatbotCard({ chatbot: initial }: { chatbot: Chatbot }) {
           primaryColor: editPrimary,
           secondaryColor: editSecondary,
           widgetStyle: editStyle,
+          iconType: editIcon,
           systemPrompt: editPrompt || undefined,
         }),
       });
@@ -234,6 +245,23 @@ export function ChatbotCard({ chatbot: initial }: { chatbot: Chatbot }) {
                     <div className="text-xs text-white/70 bg-white/5 rounded-lg px-3 py-2 self-start max-w-[75%]">¡Hola! ¿En qué puedo ayudarte?</div>
                     <div className="text-xs text-white rounded-lg px-3 py-2 self-end max-w-[75%]" style={{ background: `linear-gradient(135deg, ${editPrimary}, ${editSecondary})` }}>Hola, necesito información</div>
                   </div>
+                </div>
+              </div>
+
+              {/* Icon selector */}
+              <div>
+                <p className="text-sm font-medium text-white/80 mb-2">Icono del chatbot</p>
+                <div className="flex gap-2">
+                  {ICON_OPTIONS.map(({ id, label, d }) => (
+                    <button
+                      key={id}
+                      onClick={() => setEditIcon(id)}
+                      title={label}
+                      className={`flex items-center justify-center w-11 h-11 rounded-xl border transition-all cursor-pointer ${editIcon === id ? 'bg-violet-600 border-violet-500 text-white' : 'bg-white/5 border-white/10 text-white/50 hover:text-white hover:border-white/20'}`}
+                    >
+                      <svg viewBox="0 0 24 24" className="w-5 h-5 fill-current"><path d={d}/></svg>
+                    </button>
+                  ))}
                 </div>
               </div>
 
