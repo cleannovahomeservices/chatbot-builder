@@ -20,10 +20,11 @@ interface Chatbot {
 }
 
 const ICON_OPTIONS = [
-  { id: 'chat',    label: 'Chat',   d: 'M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-2 12H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z' },
-  { id: 'message', label: 'Burbuja', d: 'M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z' },
-  { id: 'dual',    label: 'Doble',  d: 'M15 4v7H5L4 12V4h11zm1-2H3c-.5 0-1 .5-1 1v14l4-4h10c.5 0 1-.5 1-1V3c0-.5-.5-1-1-1zm5 4h-2v9H6v2c0 .5.5 1 1 1h11l4 4V7c0-.5-.5-1-1-1z' },
-  { id: 'dots',    label: 'Puntos', d: 'M20 2H4C2.9 2 2 2.9 2 4v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-5 9.5c0 .8-.7 1.5-1.5 1.5S12 12.3 12 11.5 12.7 10 13.5 10s1.5.7 1.5 1.5zm-4 0c0 .8-.7 1.5-1.5 1.5S8 12.3 8 11.5 8.7 10 9.5 10s1.5.7 1.5 1.5zm8 0c0 .8-.7 1.5-1.5 1.5s-1.5-.7-1.5-1.5.7-1.5 1.5-1.5 1.5.7 1.5 1.5z' },
+  { id: 'chat',   label: 'Líneas', d: 'M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-2 12H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z' },
+  { id: 'dots',   label: 'Puntos', d: 'M20 2H4C2.9 2 2 2.9 2 4v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM8.5 12c-.83 0-1.5-.67-1.5-1.5S7.67 9 8.5 9 10 9.67 10 10.5 9.33 12 8.5 12zm3.5 0c-.83 0-1.5-.67-1.5-1.5S11.17 9 12 9s1.5.67 1.5 1.5S12.83 12 12 12zm3.5 0c-.83 0-1.5-.67-1.5-1.5S15.17 9 15.5 9 17 9.67 17 10.5 16.33 12 15.5 12z' },
+  { id: 'single', label: 'Simple', d: 'M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z' },
+  { id: 'forum',  label: 'Foro',   d: 'M21 6h-2v9H6v2c0 1.1.9 2 2 2h11l4 4V8c0-1.1-.9-2-2-2zm-4-4H2C.9 2 0 2.9 0 4v15.17L3.17 16H17c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z' },
+  { id: 'pair',   label: 'Par',    d: 'M16 17.01V13c0-.55-.45-1-1-1H5c-.55 0-1 .45-1 1v8l4-4h7c.55 0 1-.45 1-1zm4-14H9c-.55 0-1 .45-1 1v2h7c1.1 0 2 .9 2 2v6h2c.55 0 1-.45 1-1V4c0-.55-.45-1-1-1z' },
 ] as const;
 
 const WIDGET_STYLES = ['bubble','minimal','rounded','dark','neon','corporate','soft','floating','compact','retro'] as const;
@@ -251,15 +252,16 @@ export function ChatbotCard({ chatbot: initial }: { chatbot: Chatbot }) {
               {/* Icon selector */}
               <div>
                 <p className="text-sm font-medium text-white/80 mb-2">Icono del chatbot</p>
-                <div className="flex gap-2">
+                <div className="flex gap-3">
                   {ICON_OPTIONS.map(({ id, label, d }) => (
                     <button
                       key={id}
                       onClick={() => setEditIcon(id)}
                       title={label}
-                      className={`flex items-center justify-center w-11 h-11 rounded-xl border transition-all cursor-pointer ${editIcon === id ? 'bg-violet-600 border-violet-500 text-white' : 'bg-white/5 border-white/10 text-white/50 hover:text-white hover:border-white/20'}`}
+                      className={`relative w-12 h-12 rounded-full transition-all cursor-pointer flex items-center justify-center ${editIcon === id ? 'ring-2 ring-violet-500 ring-offset-2 ring-offset-[#111]' : 'hover:ring-2 hover:ring-white/30 hover:ring-offset-2 hover:ring-offset-[#111]'}`}
+                      style={{ background: '#2a2a2a' }}
                     >
-                      <svg viewBox="0 0 24 24" className="w-5 h-5 fill-current"><path d={d}/></svg>
+                      <svg viewBox="0 0 24 24" className="w-5 h-5 fill-white"><path d={d}/></svg>
                     </button>
                   ))}
                 </div>
