@@ -6,7 +6,7 @@ export function getVercelOAuthUrl(state: string, redirectUri: string): string {
     redirect_uri: redirectUri,
     state,
     response_type: 'code',
-    scope: 'openid email profile offline_access',
+    scope: 'email profile offline_access',
   });
   return `https://vercel.com/oauth/authorize?${params}`;
 }
