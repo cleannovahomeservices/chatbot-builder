@@ -24,28 +24,20 @@ export async function GET(request: NextRequest) {
 
   const state = crypto.randomBytes(16).toString('hex');
   const redirectUri = process.env.VERCEL_OAUTH_REDIRECT_URI || `${process.env.APP_BASE_URL || appUrl}/api/auth/vercel/callback`;
+
+  const { error: insertError } = await db.from('oauth_states').insert({
+    state,
+    user_id: user.id,
+    provider: 'vercel',
+    post_auth_redirect: `${appUrl}${next}`,
+  });
+  if (insertError) {
+    console.error('[vercel auth] failed to persist state:', insertError);
+    return NextResponse.redirect(`${appUrl}/?error=vercel_state_persist_failed`);
+  }
+
   const oauthUrl = getVercelOAuthUrl(state, redirectUri);
-
-  const cookieDomain = process.env.NODE_ENV === 'production' ? '.botluma.com' : undefined;
-  const response = NextResponse.redirect(oauthUrl);
-  response.cookies.set('vercel_oauth_state', state, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    maxAge: 600,
-    path: '/',
-    domain: cookieDomain,
-  });
-  response.cookies.set('vercel_post_auth_redirect', `${appUrl}${next}`, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    maxAge: 600,
-    path: '/',
-    domain: cookieDomain,
-  });
-
-  return response;
+  return NextResponse.redirect(oauthUrl);
 }
 
 export async function DELETE() {

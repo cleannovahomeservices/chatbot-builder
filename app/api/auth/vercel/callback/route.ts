@@ -7,17 +7,37 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const code = searchParams.get('code');
   const state = searchParams.get('state');
-  const storedState = request.cookies.get('vercel_oauth_state')?.value;
   const appUrl = new URL(request.url).origin;
 
-  if (!code || !state || state !== storedState) {
-    console.error('[vercel callback] state mismatch — stored:', storedState, 'received:', state);
+  if (!code || !state) {
+    console.error('[vercel callback] missing code or state');
+    return NextResponse.redirect(`${appUrl}/?error=vercel_missing_params`);
+  }
+
+  const db = createAdminClient();
+  const { data: stateRow, error: stateErr } = await db
+    .from('oauth_states')
+    .select('user_id, post_auth_redirect, expires_at')
+    .eq('state', state)
+    .eq('provider', 'vercel')
+    .single();
+
+  if (stateErr || !stateRow) {
+    console.error('[vercel callback] state not found in DB:', stateErr);
     return NextResponse.redirect(`${appUrl}/?error=vercel_state_mismatch`);
   }
 
+  if (new Date(stateRow.expires_at) < new Date()) {
+    console.error('[vercel callback] state expired');
+    await db.from('oauth_states').delete().eq('state', state);
+    return NextResponse.redirect(`${appUrl}/?error=vercel_state_expired`);
+  }
+
+  await db.from('oauth_states').delete().eq('state', state);
+
   const user = await getSession();
-  if (!user) {
-    console.error('[vercel callback] no session found');
+  if (!user || user.id !== stateRow.user_id) {
+    console.error('[vercel callback] session mismatch with state owner');
     return NextResponse.redirect(`${appUrl}/login`);
   }
 
@@ -27,15 +47,12 @@ export async function GET(request: NextRequest) {
     const { access_token, refresh_token } = await exchangeVercelCode(code, redirectUri);
     console.log('[vercel callback] token exchange OK, has refresh_token:', !!refresh_token);
 
-    // Validate token — non-fatal, just log if it fails
     try {
       await validateVercelToken(access_token);
     } catch (validationErr) {
       console.warn('[vercel callback] token validation warn (non-fatal):', validationErr);
     }
 
-    const db = createAdminClient();
-    // Only store vercel_access_token (vercel_refresh_token column may not exist)
     const { error } = await db
       .from('users')
       .update({ vercel_access_token: access_token })
@@ -46,14 +63,9 @@ export async function GET(request: NextRequest) {
       throw new Error(`DB update failed: ${error.message}`);
     }
 
-    const redirectTo =
-      request.cookies.get('vercel_post_auth_redirect')?.value || `${appUrl}/create`;
+    const redirectTo = stateRow.post_auth_redirect || `${appUrl}/create`;
     console.log('[vercel callback] success, redirecting to:', redirectTo);
-    const response = NextResponse.redirect(redirectTo);
-    response.cookies.delete('vercel_oauth_state');
-    response.cookies.delete('vercel_post_auth_redirect');
-
-    return response;
+    return NextResponse.redirect(redirectTo);
   } catch (err) {
     console.error('[vercel oauth callback] fatal error:', err);
     return NextResponse.redirect(`${appUrl}/?error=vercel_auth_failed`);
