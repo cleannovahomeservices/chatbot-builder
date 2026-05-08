@@ -11,6 +11,7 @@
   var wStyle = config.style || 'bubble';
   var p = config.primaryColor || '#7c3aed';
   var s = config.secondaryColor || '#4338ca';
+  var iconType = config.icon || 'chat';
 
   function hexToRgb(hex) {
     return parseInt(hex.slice(1,3),16)+','+parseInt(hex.slice(3,5),16)+','+parseInt(hex.slice(5,7),16);
@@ -270,9 +271,16 @@
   styleEl.textContent = buildCSS();
   document.head.appendChild(styleEl);
 
+  var iconPaths = {
+    chat: '<path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-2 12H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z"/>',
+    message: '<path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/>',
+    dual: '<path d="M15 4v7H5L4 12V4h11zm1-2H3c-.5 0-1 .5-1 1v14l4-4h10c.5 0 1-.5 1-1V3c0-.5-.5-1-1-1zm5 4h-2v9H6v2c0 .5.5 1 1 1h11l4 4V7c0-.5-.5-1-1-1z"/>',
+    dots: '<path d="M20 2H4C2.9 2 2 2.9 2 4v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-5 9.5c0 .8-.7 1.5-1.5 1.5S12 12.3 12 11.5 12.7 10 13.5 10s1.5.7 1.5 1.5zm-4 0c0 .8-.7 1.5-1.5 1.5S8 12.3 8 11.5 8.7 10 9.5 10s1.5.7 1.5 1.5zm8 0c0 .8-.7 1.5-1.5 1.5s-1.5-.7-1.5-1.5.7-1.5 1.5-1.5 1.5.7 1.5 1.5z"/>',
+  };
+
   var bubble = document.createElement('div');
   bubble.id = 'cb-bubble';
-  bubble.innerHTML = '<svg viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-2 12H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z"/></svg>';
+  bubble.innerHTML = '<svg viewBox="0 0 24 24">' + (iconPaths[iconType] || iconPaths.chat) + '</svg>';
   document.body.appendChild(bubble);
 
   var win = document.createElement('div');

@@ -59,10 +59,11 @@ export async function PATCH(
 
   // --- Customize action: update colors, system prompt, re-inject widget ---
   if (body.action === 'customize') {
-    const { primaryColor, secondaryColor, widgetStyle, systemPrompt } = body as {
+    const { primaryColor, secondaryColor, widgetStyle, iconType, systemPrompt } = body as {
       primaryColor?: string;
       secondaryColor?: string;
       widgetStyle?: string;
+      iconType?: string;
       systemPrompt?: string;
     };
 
@@ -78,6 +79,7 @@ export async function PATCH(
     const primary = primaryColor || chatbot.primary_color || '#7c3aed';
     const secondary = secondaryColor || chatbot.secondary_color || '#4338ca';
     const style = widgetStyle || chatbot.widget_style || 'bubble';
+    const icon = iconType || chatbot.icon_type || 'chat';
     const prompt = systemPrompt !== undefined ? systemPrompt : chatbot.system_prompt;
 
     // Update n8n system prompt if changed
@@ -96,7 +98,7 @@ export async function PATCH(
         await injectWidget(
           user.github_access_token, owner, repo,
           chatbot.n8n_webhook_url, chatbot.name, appUrl,
-          primary, secondary, style,
+          primary, secondary, style, icon,
         );
       } catch (e) {
         console.error('[customize] GitHub re-inject error:', e);
@@ -107,11 +109,21 @@ export async function PATCH(
     const updatePayload: Record<string, unknown> = { system_prompt: prompt };
     let result = await db
       .from('chatbots')
-      .update({ ...updatePayload, primary_color: primary, secondary_color: secondary, widget_style: style })
+      .update({ ...updatePayload, primary_color: primary, secondary_color: secondary, widget_style: style, icon_type: icon })
       .eq('id', id)
       .eq('user_id', user.id)
       .select()
       .single();
+
+    if (result.error?.message?.includes('icon_type')) {
+      result = await db
+        .from('chatbots')
+        .update({ ...updatePayload, primary_color: primary, secondary_color: secondary, widget_style: style })
+        .eq('id', id)
+        .eq('user_id', user.id)
+        .select()
+        .single();
+    }
 
     if (result.error?.message?.includes('primary_color') || result.error?.message?.includes('secondary_color') || result.error?.message?.includes('widget_style')) {
       result = await db
@@ -136,7 +148,7 @@ export async function PATCH(
 
   const { data: chatbot } = await db
     .from('chatbots')
-    .select('n8n_workflow_id, github_repo, name, n8n_webhook_url, primary_color, secondary_color')
+    .select('n8n_workflow_id, github_repo, name, n8n_webhook_url, primary_color, secondary_color, widget_style, icon_type')
     .eq('id', id)
     .eq('user_id', user.id)
     .single();
@@ -154,6 +166,8 @@ export async function PATCH(
           chatbot.n8n_webhook_url, chatbot.name, appUrl,
           chatbot.primary_color || '#7c3aed',
           chatbot.secondary_color || '#4338ca',
+          chatbot.widget_style || 'bubble',
+          chatbot.icon_type || 'chat',
         );
       }
     } catch (e) {

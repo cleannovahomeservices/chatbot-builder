@@ -56,6 +56,7 @@ export function CreateWizard({
   const [widgetPrimary, setWidgetPrimary] = useState('#7c3aed');
   const [widgetSecondary, setWidgetSecondary] = useState('#4338ca');
   const [widgetStyle, setWidgetStyle] = useState('bubble');
+  const [iconType, setIconType] = useState('chat');
   const [sourceUrl, setSourceUrl] = useState<string>("");
 
   async function startGenerating() {
@@ -211,7 +212,7 @@ export function CreateWizard({
     if (!target || !chatbotName.trim()) return;
     setStep("creating");
     try {
-      const colors = { primaryColor: widgetPrimary, secondaryColor: widgetSecondary, widgetStyle };
+      const colors = { primaryColor: widgetPrimary, secondaryColor: widgetSecondary, widgetStyle, iconType };
       const body =
         deployMethod === "github"
           ? { name: chatbotName, systemPrompt: prompt, githubRepo: selectedRepo, sourceUrl, ...colors }
@@ -355,6 +356,28 @@ export function CreateWizard({
                   </div>
                 </label>
               </div>
+              {/* Icon selector */}
+              <div className="mb-4">
+                <p className="text-xs text-white/50 mb-2">Icono del chatbot</p>
+                <div className="flex gap-2">
+                  {([
+                    { id: 'chat', label: 'Chat', d: 'M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-2 12H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z' },
+                    { id: 'message', label: 'Burbuja', d: 'M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z' },
+                    { id: 'dual', label: 'Doble', d: 'M15 4v7H5L4 12V4h11zm1-2H3c-.5 0-1 .5-1 1v14l4-4h10c.5 0 1-.5 1-1V3c0-.5-.5-1-1-1zm5 4h-2v9H6v2c0 .5.5 1 1 1h11l4 4V7c0-.5-.5-1-1-1z' },
+                    { id: 'dots', label: 'Puntos', d: 'M20 2H4C2.9 2 2 2.9 2 4v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-5 9.5c0 .8-.7 1.5-1.5 1.5S12 12.3 12 11.5 12.7 10 13.5 10s1.5.7 1.5 1.5zm-4 0c0 .8-.7 1.5-1.5 1.5S8 12.3 8 11.5 8.7 10 9.5 10s1.5.7 1.5 1.5zm8 0c0 .8-.7 1.5-1.5 1.5s-1.5-.7-1.5-1.5.7-1.5 1.5-1.5 1.5.7 1.5 1.5z' },
+                  ] as const).map(({ id, label, d }) => (
+                    <button
+                      key={id}
+                      onClick={() => setIconType(id)}
+                      title={label}
+                      className={`flex items-center justify-center w-11 h-11 rounded-xl border transition-all cursor-pointer ${iconType === id ? 'bg-violet-600 border-violet-500 text-white' : 'bg-white/5 border-white/10 text-white/50 hover:text-white hover:border-white/20'}`}
+                    >
+                      <svg viewBox="0 0 24 24" className="w-5 h-5 fill-current"><path d={d}/></svg>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               {/* Style selector */}
               <div className="mb-4">
                 <div className="flex items-center justify-between mb-2">
