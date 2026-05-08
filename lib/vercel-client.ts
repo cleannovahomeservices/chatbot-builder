@@ -23,7 +23,6 @@ export async function exchangeVercelCode(
       client_id: process.env.VERCEL_CLIENT_ID!,
       client_secret: process.env.VERCEL_CLIENT_SECRET!,
       redirect_uri: redirectUri,
-      grant_type: 'authorization_code',
     }),
   });
   if (!res.ok) {

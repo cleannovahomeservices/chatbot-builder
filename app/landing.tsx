@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import Image from "next/image";
-import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 
 const IconGithub = (props: React.SVGProps<SVGSVGElement>) => (
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" {...props}>
@@ -49,17 +48,11 @@ export function LandingPage({ isLoggedIn, username }: Props) {
     window.location.href = `/api/auth/github?${params}`;
   }
 
-  async function loginWithGoogle() {
+  function loginWithGoogle() {
     const next = pendingParams
       ? `/create?mode=${pendingParams.mode}&input=${encodeURIComponent(pendingParams.input)}`
       : "/dashboard";
-    const supabase = createSupabaseBrowserClient();
-    await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: {
-        redirectTo: `${window.location.origin}/api/auth/supabase/callback?next=${encodeURIComponent(next)}`,
-      },
-    });
+    window.location.href = `/api/auth/google?next=${encodeURIComponent(next)}`;
   }
 
   async function handleEmailAuth() {

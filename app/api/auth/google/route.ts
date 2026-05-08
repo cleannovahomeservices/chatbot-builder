@@ -5,7 +5,15 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const mode = searchParams.get('mode');
   const input = searchParams.get('input');
+  const nextParam = searchParams.get('next');
   const appUrl = new URL(request.url).origin;
+
+  // Determine where to send the user after login
+  const next = nextParam
+    ? nextParam
+    : mode && input
+    ? `/create?mode=${mode}&input=${encodeURIComponent(input)}`
+    : '/dashboard';
 
   const cookieJar: { name: string; value: string; options: Record<string, unknown> }[] = [];
 
@@ -26,7 +34,7 @@ export async function GET(request: NextRequest) {
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: 'google',
     options: {
-      redirectTo: `${callbackBase}/api/auth/supabase/callback`,
+      redirectTo: `${callbackBase}/api/auth/supabase/callback?next=${encodeURIComponent(next)}`,
       skipBrowserRedirect: true,
     },
   });
@@ -36,24 +44,9 @@ export async function GET(request: NextRequest) {
   }
 
   const response = NextResponse.redirect(data.url);
-  const cookieDomain = process.env.NODE_ENV === 'production' ? '.botluma.com' : undefined;
 
   cookieJar.forEach(({ name, value, options }) => {
     response.cookies.set(name, value, options as Parameters<typeof response.cookies.set>[2]);
-  });
-
-  const redirectTarget =
-    mode && input
-      ? `${appUrl}/create?mode=${mode}&input=${encodeURIComponent(input)}`
-      : `${appUrl}/dashboard`;
-
-  response.cookies.set('post_auth_redirect', redirectTarget, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    maxAge: 600,
-    path: '/',
-    domain: cookieDomain,
   });
 
   return response;
