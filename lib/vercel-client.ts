@@ -1,21 +1,36 @@
+import crypto from 'crypto';
+
 const VERCEL_API = 'https://api.vercel.com';
 const VERCEL_OIDC_TOKEN_URL = 'https://api.vercel.com/login/oauth/token';
 const VERCEL_OIDC_USERINFO_URL = 'https://api.vercel.com/login/oauth/userinfo';
 
-export function getVercelOAuthUrl(state: string, redirectUri: string): string {
+function base64UrlEncode(buf: Buffer): string {
+  return buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+export function generatePkcePair(): { code_verifier: string; code_challenge: string } {
+  const code_verifier = base64UrlEncode(crypto.randomBytes(32));
+  const code_challenge = base64UrlEncode(crypto.createHash('sha256').update(code_verifier).digest());
+  return { code_verifier, code_challenge };
+}
+
+export function getVercelOAuthUrl(state: string, redirectUri: string, codeChallenge: string): string {
   const params = new URLSearchParams({
     client_id: process.env.VERCEL_CLIENT_ID!,
     redirect_uri: redirectUri,
     state,
     response_type: 'code',
     scope: 'openid email profile offline_access',
+    code_challenge: codeChallenge,
+    code_challenge_method: 'S256',
   });
   return `https://vercel.com/oauth/authorize?${params}`;
 }
 
 export async function exchangeVercelCode(
   code: string,
-  redirectUri: string
+  redirectUri: string,
+  codeVerifier: string
 ): Promise<{ access_token: string; refresh_token?: string; id_token?: string }> {
   const res = await fetch(VERCEL_OIDC_TOKEN_URL, {
     method: 'POST',
@@ -26,6 +41,7 @@ export async function exchangeVercelCode(
       client_id: process.env.VERCEL_CLIENT_ID!,
       client_secret: process.env.VERCEL_CLIENT_SECRET!,
       redirect_uri: redirectUri,
+      code_verifier: codeVerifier,
     }),
   });
   if (!res.ok) {

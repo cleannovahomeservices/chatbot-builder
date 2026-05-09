@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
   const db = createAdminClient();
   const { data: stateRow, error: stateErr } = await db
     .from('oauth_states')
-    .select('user_id, post_auth_redirect, expires_at')
+    .select('user_id, post_auth_redirect, expires_at, code_verifier')
     .eq('state', state)
     .eq('provider', 'vercel')
     .single();
@@ -49,9 +49,13 @@ export async function GET(request: NextRequest) {
 
   const redirectUri = process.env.VERCEL_OAUTH_REDIRECT_URI || `${process.env.APP_BASE_URL || appUrl}/api/auth/vercel/callback`;
 
+  if (!stateRow.code_verifier) {
+    return errorPage('missing_code_verifier', `state row had no PKCE code_verifier saved (likely from before PKCE rollout). Click retry to start a fresh OAuth flow.`, retry);
+  }
+
   let access_token: string;
   try {
-    const tokens = await exchangeVercelCode(code, redirectUri);
+    const tokens = await exchangeVercelCode(code, redirectUri, stateRow.code_verifier);
     access_token = tokens.access_token;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

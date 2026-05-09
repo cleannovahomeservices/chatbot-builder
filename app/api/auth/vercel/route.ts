@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { getVercelOAuthUrl } from '@/lib/vercel-client';
+import { getVercelOAuthUrl, generatePkcePair } from '@/lib/vercel-client';
 import crypto from 'crypto';
 
 export async function GET(request: NextRequest) {
@@ -23,6 +23,7 @@ export async function GET(request: NextRequest) {
   }
 
   const state = crypto.randomBytes(16).toString('hex');
+  const { code_verifier, code_challenge } = generatePkcePair();
   const redirectUri = process.env.VERCEL_OAUTH_REDIRECT_URI || `${process.env.APP_BASE_URL || appUrl}/api/auth/vercel/callback`;
 
   const { error: insertError } = await db.from('oauth_states').insert({
@@ -30,13 +31,14 @@ export async function GET(request: NextRequest) {
     user_id: user.id,
     provider: 'vercel',
     post_auth_redirect: `${appUrl}${next}`,
+    code_verifier,
   });
   if (insertError) {
     console.error('[vercel auth] failed to persist state:', insertError);
     return NextResponse.redirect(`${appUrl}/?error=vercel_state_persist_failed`);
   }
 
-  const oauthUrl = getVercelOAuthUrl(state, redirectUri);
+  const oauthUrl = getVercelOAuthUrl(state, redirectUri, code_challenge);
   return NextResponse.redirect(oauthUrl);
 }
 
