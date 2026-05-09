@@ -3,6 +3,7 @@ import { getSession } from '@/lib/session';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { createChatbotWorkflow } from '@/lib/n8n';
 import { injectWidget } from '@/lib/github';
+import { injectWidgetViaVercel } from '@/lib/vercel-deploy';
 import crypto from 'crypto';
 
 export async function POST(request: NextRequest) {
@@ -50,6 +51,21 @@ export async function POST(request: NextRequest) {
       injectReason = result.reason;
       injectFile = result.file;
       injectPrUrl = result.prUrl;
+    } else if (vercelProjectId && user.vercel_access_token) {
+      // No GitHub repo — inject directly via Vercel Deploy API (static projects)
+      const vResult = await injectWidgetViaVercel(
+        user.vercel_access_token,
+        vercelProjectId,
+        webhookUrl,
+        appUrl,
+        user.vercel_team_id,
+      );
+      if (vResult.ok) {
+        widgetInjected = true;
+        injectFile = 'Vercel (static deployment)';
+      } else {
+        injectReason = vResult.error;
+      }
     } else if (!user.github_access_token) {
       injectReason = 'no GitHub token on account';
     }

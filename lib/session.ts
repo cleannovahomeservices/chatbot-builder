@@ -13,6 +13,7 @@ export interface SessionUser {
   github_avatar_url: string | null;
   github_access_token: string | null;
   vercel_access_token: string | null;
+  vercel_team_id: string | null;
   google_id: string | null;
   google_name: string | null;
   google_email: string | null;
