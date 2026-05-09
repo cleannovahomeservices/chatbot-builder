@@ -12,6 +12,7 @@ interface Chatbot {
   status: string;
   widget_injected: boolean;
   created_at: string;
+  updated_at: string;
 }
 
 export default async function DashboardPage() {

@@ -11,6 +11,7 @@ interface Chatbot {
   status: string;
   widget_injected: boolean;
   created_at: string;
+  updated_at?: string;
   primary_color?: string;
   secondary_color?: string;
   widget_style?: string;
@@ -178,7 +179,9 @@ export function ChatbotCard({ chatbot: initial }: { chatbot: Chatbot }) {
           </div>
 
           <div className="flex flex-col items-end gap-2 shrink-0">
-            <span className="text-xs text-white/25">{new Date(chatbot.created_at).toLocaleDateString('es-ES')}</span>
+            <span className="text-xs text-white/25" title={`Creado: ${new Date(chatbot.created_at).toLocaleDateString('es-ES')}`}>
+              Actualizado: {new Date(chatbot.updated_at ?? chatbot.created_at).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+            </span>
             <button
               onClick={openPanel}
               disabled={loading || deleting}
