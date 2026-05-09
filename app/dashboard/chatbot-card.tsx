@@ -349,18 +349,22 @@ export function ChatbotCard({ chatbot: initial }: { chatbot: Chatbot }) {
                   disabled={reinjectStatus === 'loading'}
                   className={`w-full py-2 rounded-lg text-sm font-medium transition cursor-pointer disabled:opacity-50 border
                     ${reinjectStatus === 'ok' ? 'border-emerald-500/30 text-emerald-400 bg-emerald-500/5'
-                    : reinjectStatus === 'error' ? 'border-red-500/30 text-red-400 bg-red-500/5'
+                    : reinjectStatus === 'error' ? 'border-orange-500/30 text-orange-400 bg-orange-500/5'
                     : 'border-violet-500/30 text-violet-300 hover:bg-violet-500/10'}`}
                 >
                   {reinjectStatus === 'loading' ? 'Reconectando…'
                     : reinjectStatus === 'ok' ? '✓ Reconectado'
-                    : reinjectStatus === 'error' ? '✗ Error — ver detalle abajo'
+                    : reinjectStatus === 'error' ? 'Añade el snippet manualmente'
                     : '↻ Reconectar widget'}
                 </button>
-                {reinjectMessage && (
-                  <p className={`text-xs mt-2 ${reinjectStatus === 'ok' ? 'text-emerald-400' : 'text-red-400'}`}>
-                    {reinjectMessage}
-                  </p>
+                {reinjectStatus === 'error' && (
+                  <div className="mt-3">
+                    <p className="text-xs text-white/40 mb-2">Pega este código antes del <code className="bg-white/10 px-1 rounded">&lt;/body&gt;</code> de tu web:</p>
+                    <pre className="text-xs text-violet-300 bg-black/40 rounded-lg p-3 whitespace-pre-wrap break-all select-all">{`<script>window.ChatbotConfig={webhookUrl:"${chatbot.n8n_webhook_url}"};</script>\n<script src="https://www.botluma.com/widget.js" async defer></script>`}</pre>
+                  </div>
+                )}
+                {reinjectStatus === 'ok' && (
+                  <p className="text-xs mt-2 text-emerald-400">{reinjectMessage}</p>
                 )}
               </div>
 
