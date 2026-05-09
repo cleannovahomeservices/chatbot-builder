@@ -8,14 +8,23 @@ interface VFile {
   children?: VFile[];
 }
 
-function flattenTree(files: VFile[], prefix = ''): { path: string; uid: string; size: number }[] {
-  const out: { path: string; uid: string; size: number }[] = [];
+interface FlatFile {
+  path: string;
+  uid: string;
+  size: number;
+  type: 'file' | 'lambda' | 'middleware';
+}
+
+function flattenTree(files: VFile[], prefix = ''): FlatFile[] {
+  const out: FlatFile[] = [];
   for (const f of files) {
     const full = prefix ? `${prefix}/${f.name}` : f.name;
     if (f.type === 'directory' && f.children?.length) {
       out.push(...flattenTree(f.children, full));
-    } else if (f.type === 'file' || f.type === 'lambda') {
-      out.push({ path: full, uid: f.uid, size: f.size ?? 0 });
+    } else if (f.type === 'file') {
+      out.push({ path: full, uid: f.uid, size: f.size ?? 0, type: 'file' });
+    } else if (f.type === 'lambda' || f.type === 'middleware') {
+      out.push({ path: full, uid: f.uid, size: f.size ?? 0, type: f.type });
     }
   }
   return out;
@@ -31,7 +40,7 @@ export async function injectWidgetViaVercel(
   webhookUrl: string,
   appUrl: string,
   teamId?: string | null,
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; isSSR?: boolean; error?: string }> {
   const auth = { Authorization: `Bearer ${token}` };
 
   // 1. Latest READY production deployment
@@ -51,12 +60,19 @@ export async function injectWidgetViaVercel(
   if (!fRes.ok) return { ok: false, error: `List files (${fRes.status}): ${await fRes.text()}` };
   const allFiles = flattenTree(await fRes.json() as VFile[]);
 
-  // 3. Find HTML files
-  const htmlFiles = allFiles.filter(f => f.path.endsWith('.html'));
-  if (!htmlFiles.length) return { ok: false, error: 'No HTML files found — project may be SSR (Next.js, etc.)' };
+  // SSR projects have serverless functions — cannot inject by copying files
+  // (lambda SHAs are not valid file references for new deployments)
+  const hasServerless = allFiles.some(f => f.type === 'lambda' || f.type === 'middleware');
+  if (hasServerless) {
+    return { ok: false, isSSR: true };
+  }
 
-  // 4. Download + inject
-  const snippet = `<script>window.ChatbotConfig={webhookUrl:"${webhookUrl}"};</script>\n<script src="${appUrl}/widget.js" async defer></script>`;
+  // 3. Find HTML files (static sites only)
+  const htmlFiles = allFiles.filter(f => f.path.endsWith('.html'));
+  if (!htmlFiles.length) return { ok: false, error: 'No HTML files found — project may be empty or SSR' };
+
+  // 4. Download + inject snippet
+  const snippet = `<script>window.ChatbotConfig={webhookUrl:"${webhookUrl}",appUrl:"${appUrl}"};</script>\n<script src="${appUrl}/widget.js" async defer></script>`;
   const modified: { file: string; data: string; encoding: 'base64' }[] = [];
 
   for (const hf of htmlFiles) {
@@ -73,12 +89,12 @@ export async function injectWidgetViaVercel(
     modified.push({ file: hf.path, data: Buffer.from(injected).toString('base64'), encoding: 'base64' });
   }
 
-  if (!modified.length) return { ok: false, error: 'Widget already injected in all HTML files' };
+  if (!modified.length) return { ok: false, error: 'Widget already present in all HTML files' };
 
-  // 5. New deployment: modified files + unchanged referenced by SHA
+  // 5. New deployment: modified files (inline) + unchanged static files by SHA
   const modPaths = new Set(modified.map(f => f.file));
   const refs = allFiles
-    .filter(f => !modPaths.has(f.path))
+    .filter(f => f.type === 'file' && !modPaths.has(f.path))
     .map(f => ({ file: f.path, sha: f.uid, size: f.size }));
 
   const nRes = await fetch(

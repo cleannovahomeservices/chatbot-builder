@@ -555,8 +555,9 @@ export function CreateWizard({
                 ) : (
                   <>
                     <p className="text-xs text-white/35 mb-3 leading-relaxed">
-                      Solo los proyectos HTML estáticos son compatibles con la inyección directa vía Vercel.
-                      Para Next.js u otros frameworks, conecta con <button onClick={() => switchMethod("github")} className="text-violet-400 underline cursor-pointer">GitHub</button>.
+                      <span className="text-emerald-400">Verde</span>: inyección automática directa.{" "}
+                      <span className="text-amber-400">Amarillo</span>: Next.js/SSR — necesita conectar GitHub también (un clic tras crear).{" "}
+                      <span className="text-red-400">Rojo</span>: usa la pestaña GitHub.
                     </p>
                     <input
                       type="text"
@@ -575,7 +576,11 @@ export function CreateWizard({
                           <div className="p-6 text-center text-white/40 text-sm">No se encontraron proyectos</div>
                         );
                         return filtered.map((p) => {
-                          const available = !!p.link || !SSR.has(p.framework ?? '');
+                          const isSSR = SSR.has(p.framework ?? '');
+                          const hasGithubLink = !!p.link;
+                          // Selectable: static (always) or SSR with GitHub link (will prompt GitHub connect)
+                          const available = !isSSR || hasGithubLink;
+                          const needsGithub = isSSR && hasGithubLink;
                           return (
                             <button
                               key={p.id}
@@ -589,7 +594,11 @@ export function CreateWizard({
                                 <span className="text-xs text-white/25 border border-white/10 rounded px-1.5 py-0.5">
                                   {p.framework ?? "static"}
                                 </span>
-                                {available ? (
+                                {needsGithub ? (
+                                  <span className="text-xs text-amber-400 border border-amber-500/25 rounded px-1.5 py-0.5 bg-amber-500/5">
+                                    Via GitHub
+                                  </span>
+                                ) : available ? (
                                   <span className="text-xs text-emerald-400 border border-emerald-500/25 rounded px-1.5 py-0.5 bg-emerald-500/5">
                                     Disponible
                                   </span>
@@ -666,8 +675,27 @@ export function CreateWizard({
               </div>
             )}
 
-            {/* Case 3: could not inject at all — show manual snippet */}
-            {!createdChatbot?.widget_injected && !injectPrUrl && (
+            {/* Case 3a: SSR project — needs GitHub */}
+            {!createdChatbot?.widget_injected && !injectPrUrl && injectReason === 'SSR_NEEDS_GITHUB' && (
+              <div className="rounded-xl border border-violet-500/30 bg-violet-500/5 p-5 text-left mb-6">
+                <p className="text-sm font-semibold text-violet-300 mb-1">Un paso más: conecta GitHub</p>
+                <p className="text-xs text-white/50 mb-4">
+                  Tu proyecto usa Next.js. Para que el widget se inyecte automáticamente, conecta tu cuenta de GitHub. Es un solo clic y después todo es automático.
+                </p>
+                <a
+                  href="/api/auth/github?next=/dashboard"
+                  className="block w-full text-center rounded-lg bg-violet-600 hover:bg-violet-500 px-4 py-2.5 text-sm font-semibold text-white transition"
+                >
+                  Conectar GitHub →
+                </a>
+                <p className="text-xs text-white/30 mt-3">
+                  Tras conectar, usa &ldquo;Reconectar widget&rdquo; en tu chatbot del dashboard.
+                </p>
+              </div>
+            )}
+
+            {/* Case 3b: could not inject at all — show manual snippet */}
+            {!createdChatbot?.widget_injected && !injectPrUrl && injectReason !== 'SSR_NEEDS_GITHUB' && (
               <>
                 <p className="text-white/50 mb-4">
                   Tu chatbot está activo. Añade este snippet antes del{" "}

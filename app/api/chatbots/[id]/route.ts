@@ -172,7 +172,26 @@ export async function PATCH(
       }
     }
 
-    if (!injected && !message) message = 'Este chatbot usa Vercel sin GitHub — usa el snippet manual';
+    // Try Vercel Deploy API for static projects (no SSR)
+    if (!injected && chatbot.vercel_project_id && user.vercel_access_token) {
+      try {
+        const result = await injectWidgetViaVercel(
+          user.vercel_access_token,
+          chatbot.vercel_project_id,
+          chatbot.n8n_webhook_url,
+          appUrl,
+          user.vercel_team_id,
+        );
+        injected = result.ok;
+        message = result.ok
+          ? 'Inyectado automáticamente en Vercel'
+          : (result.isSSR ? 'NEEDS_GITHUB' : (result.error ?? 'Error Vercel'));
+      } catch (e) {
+        message = e instanceof Error ? e.message : 'Error Vercel';
+      }
+    }
+
+    if (!injected && !message) message = 'NEEDS_GITHUB';
 
     if (injected) {
       await db.from('chatbots').update({ widget_injected: true, updated_at: new Date().toISOString() }).eq('id', id);

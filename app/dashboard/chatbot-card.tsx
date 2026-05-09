@@ -354,10 +354,22 @@ export function ChatbotCard({ chatbot: initial }: { chatbot: Chatbot }) {
                 >
                   {reinjectStatus === 'loading' ? 'Reconectando…'
                     : reinjectStatus === 'ok' ? '✓ Reconectado'
-                    : reinjectStatus === 'error' ? 'Añade el snippet manualmente'
+                    : reinjectStatus === 'error' && reinjectMessage === 'NEEDS_GITHUB' ? 'Conectar GitHub para inyectar'
+                    : reinjectStatus === 'error' ? 'Error al reconectar'
                     : '↻ Reconectar widget'}
                 </button>
-                {reinjectStatus === 'error' && (
+                {reinjectStatus === 'error' && reinjectMessage === 'NEEDS_GITHUB' && (
+                  <div className="mt-3 rounded-lg border border-violet-500/20 bg-violet-500/5 p-3">
+                    <p className="text-xs text-white/60 mb-2">Tu proyecto usa Next.js. Para inyectar automáticamente, conecta tu cuenta de GitHub — es un solo clic.</p>
+                    <a
+                      href="/api/auth/github?next=/dashboard"
+                      className="block w-full text-center py-2 rounded-lg bg-violet-600 hover:bg-violet-500 text-xs font-semibold text-white transition"
+                    >
+                      Conectar GitHub →
+                    </a>
+                  </div>
+                )}
+                {reinjectStatus === 'error' && reinjectMessage !== 'NEEDS_GITHUB' && (
                   <div className="mt-3">
                     <p className="text-xs text-white/40 mb-2">Pega este código antes del <code className="bg-white/10 px-1 rounded">&lt;/body&gt;</code> de tu web:</p>
                     <pre className="text-xs text-violet-300 bg-black/40 rounded-lg p-3 whitespace-pre-wrap break-all select-all">{`<script>window.ChatbotConfig={webhookUrl:"${chatbot.n8n_webhook_url}"};</script>\n<script src="https://www.botluma.com/widget.js" async defer></script>`}</pre>
