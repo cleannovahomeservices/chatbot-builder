@@ -34,6 +34,10 @@ function tq(teamId?: string | null) {
   return teamId ? `&teamId=${encodeURIComponent(teamId)}` : '';
 }
 
+function tqs(teamId?: string | null) {
+  return teamId ? `?teamId=${encodeURIComponent(teamId)}` : '';
+}
+
 export async function injectWidgetViaVercel(
   token: string,
   projectId: string,
@@ -54,14 +58,13 @@ export async function injectWidgetViaVercel(
 
   // 2. List all files
   const fRes = await fetch(
-    `${VERCEL_API}/v6/deployments/${dep.uid}/files${teamId ? `?teamId=${encodeURIComponent(teamId)}` : ''}`,
+    `${VERCEL_API}/v6/deployments/${dep.uid}/files${tqs(teamId)}`,
     { headers: auth }
   );
   if (!fRes.ok) return { ok: false, error: `List files (${fRes.status}): ${await fRes.text()}` };
   const allFiles = flattenTree(await fRes.json() as VFile[]);
 
   // SSR projects have serverless functions — cannot inject by copying files
-  // (lambda SHAs are not valid file references for new deployments)
   const hasServerless = allFiles.some(f => f.type === 'lambda' || f.type === 'middleware');
   if (hasServerless) {
     return { ok: false, isSSR: true };
@@ -71,13 +74,22 @@ export async function injectWidgetViaVercel(
   const htmlFiles = allFiles.filter(f => f.path.endsWith('.html'));
   if (!htmlFiles.length) return { ok: false, error: 'No HTML files found — project may be empty or SSR' };
 
-  // 4. Download + inject snippet
+  // 4. Get current production aliases (to re-assign them to the new deployment)
+  const aliasRes = await fetch(
+    `${VERCEL_API}/v2/deployments/${dep.uid}/aliases${tqs(teamId)}`,
+    { headers: auth }
+  );
+  const productionAliases: string[] = aliasRes.ok
+    ? ((await aliasRes.json()).aliases ?? []).map((a: { alias: string }) => a.alias)
+    : [];
+
+  // 5. Download + inject snippet
   const snippet = `<script>window.ChatbotConfig={webhookUrl:"${webhookUrl}",appUrl:"${appUrl}"};</script>\n<script src="${appUrl}/widget.js" async defer></script>`;
   const modified: { file: string; data: string; encoding: 'base64' }[] = [];
 
   for (const hf of htmlFiles) {
     const cRes = await fetch(
-      `${VERCEL_API}/v7/deployments/${dep.uid}/files/${hf.uid}${teamId ? `?teamId=${encodeURIComponent(teamId)}` : ''}`,
+      `${VERCEL_API}/v7/deployments/${dep.uid}/files/${hf.uid}${tqs(teamId)}`,
       { headers: auth }
     );
     if (!cRes.ok) continue;
@@ -91,7 +103,7 @@ export async function injectWidgetViaVercel(
 
   if (!modified.length) return { ok: false, error: 'Widget already present in all HTML files' };
 
-  // 5. New deployment: modified files (inline) + unchanged static files by SHA
+  // 6. New deployment: modified files (inline) + unchanged static files by SHA
   const modPaths = new Set(modified.map(f => f.file));
   const refs = allFiles
     .filter(f => f.type === 'file' && !modPaths.has(f.path))
@@ -111,5 +123,22 @@ export async function injectWidgetViaVercel(
     }
   );
   if (!nRes.ok) return { ok: false, error: `Create deployment (${nRes.status}): ${await nRes.text()}` };
+
+  const newDep = await nRes.json();
+  const newDepId: string | undefined = newDep.id ?? newDep.uid;
+
+  // 7. Promote: assign all previous production aliases to the new deployment
+  if (newDepId && productionAliases.length > 0) {
+    await Promise.allSettled(
+      productionAliases.map(alias =>
+        fetch(`${VERCEL_API}/v2/deployments/${newDepId}/aliases${tqs(teamId)}`, {
+          method: 'POST',
+          headers: { ...auth, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ alias }),
+        })
+      )
+    );
+  }
+
   return { ok: true };
 }
