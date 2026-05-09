@@ -12,6 +12,7 @@ interface Chatbot {
   widget_injected: boolean;
   created_at: string;
   updated_at?: string;
+  vercel_project_id?: string;
   primary_color?: string;
   secondary_color?: string;
   widget_style?: string;
@@ -38,6 +39,8 @@ export function ChatbotCard({ chatbot: initial }: { chatbot: Chatbot }) {
   const [saving, setSaving] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
   const [saveError, setSaveError] = useState('');
+  const [reinjectStatus, setReinjectStatus] = useState<'idle' | 'loading' | 'ok' | 'error'>('idle');
+  const [reinjectMessage, setReinjectMessage] = useState('');
 
   const [editPrimary, setEditPrimary] = useState(chatbot.primary_color || '#7c3aed');
   const [editSecondary, setEditSecondary] = useState(chatbot.secondary_color || '#4338ca');
@@ -115,6 +118,30 @@ export function ChatbotCard({ chatbot: initial }: { chatbot: Chatbot }) {
       setSaveError('Error al regenerar. Inténtalo de nuevo.');
     } finally {
       setRegenerating(false);
+    }
+  }
+
+  async function reinjectWidget() {
+    setReinjectStatus('loading');
+    setReinjectMessage('');
+    try {
+      const res = await fetch(`/api/chatbots/${chatbot.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'reinject' }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setReinjectStatus('ok');
+        setReinjectMessage(data.message || 'Widget reconectado');
+        setChatbot(prev => ({ ...prev, widget_injected: true }));
+      } else {
+        setReinjectStatus('error');
+        setReinjectMessage(data.message || data.error || 'Error al reconectar');
+      }
+    } catch {
+      setReinjectStatus('error');
+      setReinjectMessage('Error de red');
     }
   }
 
@@ -311,6 +338,30 @@ export function ChatbotCard({ chatbot: initial }: { chatbot: Chatbot }) {
                   placeholder="Describe cómo debe comportarse tu chatbot…"
                   className="w-full resize-none rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white placeholder-white/25 outline-none focus:border-violet-500/60 focus:ring-1 focus:ring-violet-500/30"
                 />
+              </div>
+
+              {/* Reconectar widget */}
+              <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4">
+                <p className="text-sm font-medium text-white/80 mb-1">Reconectar widget</p>
+                <p className="text-xs text-white/40 mb-3">Re-inyecta el código del chatbot en tu proyecto sin cambiar la configuración.</p>
+                <button
+                  onClick={reinjectWidget}
+                  disabled={reinjectStatus === 'loading'}
+                  className={`w-full py-2 rounded-lg text-sm font-medium transition cursor-pointer disabled:opacity-50 border
+                    ${reinjectStatus === 'ok' ? 'border-emerald-500/30 text-emerald-400 bg-emerald-500/5'
+                    : reinjectStatus === 'error' ? 'border-red-500/30 text-red-400 bg-red-500/5'
+                    : 'border-violet-500/30 text-violet-300 hover:bg-violet-500/10'}`}
+                >
+                  {reinjectStatus === 'loading' ? 'Reconectando…'
+                    : reinjectStatus === 'ok' ? '✓ Reconectado'
+                    : reinjectStatus === 'error' ? '✗ Error — ver detalle abajo'
+                    : '↻ Reconectar widget'}
+                </button>
+                {reinjectMessage && (
+                  <p className={`text-xs mt-2 ${reinjectStatus === 'ok' ? 'text-emerald-400' : 'text-red-400'}`}>
+                    {reinjectMessage}
+                  </p>
+                )}
               </div>
 
               {saveError && <p className="text-sm text-red-400">{saveError}</p>}

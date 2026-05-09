@@ -78,6 +78,7 @@ export async function POST(request: NextRequest) {
       n8n_workflow_id: workflowId,
       n8n_webhook_url: webhookUrl,
       github_repo: targetRepo ?? vercelProjectName ?? null,
+      vercel_project_id: vercelProjectId ?? null,
       widget_injected: widgetInjected,
       status: 'active',
     };

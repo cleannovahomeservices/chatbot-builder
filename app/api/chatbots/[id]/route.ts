@@ -3,6 +3,7 @@ import { getSession } from '@/lib/session';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { deleteWorkflow, updateWorkflowSystemPrompt } from '@/lib/n8n';
 import { removeWidget, injectWidget } from '@/lib/github';
+import { injectWidgetViaVercel } from '@/lib/vercel-deploy';
 
 export async function DELETE(
   request: NextRequest,
@@ -137,6 +138,64 @@ export async function PATCH(
 
     if (result.error) return NextResponse.json({ error: result.error.message }, { status: 500 });
     return NextResponse.json({ chatbot: result.data });
+  }
+
+  // --- Reinject action ---
+  if (body.action === 'reinject') {
+    const { data: chatbot } = await db
+      .from('chatbots')
+      .select('*')
+      .eq('id', id)
+      .eq('user_id', user.id)
+      .single();
+    if (!chatbot) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+
+    let injected = false;
+    let message = '';
+
+    // Try GitHub first (repo stored as "owner/repo")
+    if (chatbot.github_repo?.includes('/') && user.github_access_token) {
+      const [owner, repo] = chatbot.github_repo.split('/');
+      try {
+        const result = await injectWidget(
+          user.github_access_token, owner, repo,
+          chatbot.n8n_webhook_url, chatbot.name, appUrl,
+          chatbot.primary_color || '#7c3aed',
+          chatbot.secondary_color || '#4338ca',
+          chatbot.widget_style || 'bubble',
+          chatbot.icon_type || 'chat',
+        );
+        injected = result.injected;
+        message = result.injected ? `Inyectado en ${result.file}` : (result.reason ?? 'Error desconocido');
+      } catch (e) {
+        message = e instanceof Error ? e.message : 'Error GitHub';
+      }
+    }
+
+    // Try Vercel Deploy API if no GitHub injection
+    if (!injected && chatbot.vercel_project_id && user.vercel_access_token) {
+      try {
+        const result = await injectWidgetViaVercel(
+          user.vercel_access_token,
+          chatbot.vercel_project_id,
+          chatbot.n8n_webhook_url,
+          appUrl,
+          (user as unknown as Record<string, string | null>).vercel_team_id ?? null,
+        );
+        injected = result.ok;
+        message = result.ok ? 'Nuevo deployment creado en Vercel' : (result.error ?? 'Error Vercel');
+      } catch (e) {
+        message = e instanceof Error ? e.message : 'Error Vercel';
+      }
+    }
+
+    if (!injected && !message) message = 'No hay GitHub ni Vercel conectado para este chatbot';
+
+    if (injected) {
+      await db.from('chatbots').update({ widget_injected: true, updated_at: new Date().toISOString() }).eq('id', id);
+    }
+
+    return NextResponse.json({ ok: injected, message });
   }
 
   // --- Status toggle action ---
