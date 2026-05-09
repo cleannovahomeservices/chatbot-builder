@@ -10,7 +10,7 @@ export async function GET() {
   const db = createAdminClient();
   const { data } = await db
     .from('users')
-    .select('vercel_access_token')
+    .select('vercel_access_token, vercel_team_id')
     .eq('id', user.id)
     .single();
 
@@ -18,7 +18,7 @@ export async function GET() {
   if (!token) return NextResponse.json({ error: 'Vercel no conectado' }, { status: 400 });
 
   try {
-    const projects = await listVercelProjects(token);
+    const projects = await listVercelProjects(token, data?.vercel_team_id);
     return NextResponse.json({ projects });
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Error';

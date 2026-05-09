@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { exchangeVercelCode, validateVercelToken } from '@/lib/vercel-client';
+import { exchangeVercelCode } from '@/lib/vercel-client';
 
 function errorPage(stage: string, detail: string, retryHref: string) {
   const safe = (s: string) => s.replace(/[<>&"]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c] ?? c));
@@ -13,17 +13,18 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const code = searchParams.get('code');
   const state = searchParams.get('state');
+  const teamIdFromCallback = searchParams.get('teamId');
   const appUrl = new URL(request.url).origin;
   const retry = `${appUrl}/create`;
 
   if (!code || !state) {
-    return errorPage('callback_params', `code=${code ? 'present' : 'MISSING'} state=${state ? 'present' : 'MISSING'}`, retry);
+    return errorPage('callback_params', `code=${code ? 'present' : 'MISSING'} state=${state ? 'present' : 'MISSING'}\nAll params: ${searchParams.toString()}`, retry);
   }
 
   const db = createAdminClient();
   const { data: stateRow, error: stateErr } = await db
     .from('oauth_states')
-    .select('user_id, post_auth_redirect, expires_at, code_verifier')
+    .select('user_id, post_auth_redirect, expires_at')
     .eq('state', state)
     .eq('provider', 'vercel')
     .single();
@@ -41,7 +42,7 @@ export async function GET(request: NextRequest) {
 
   const user = await getSession();
   if (!user) {
-    return errorPage('session_missing', `No active session cookie when callback was hit. (cookies were dropped between Vercel and the callback)`, `${appUrl}/login`);
+    return errorPage('session_missing', `No active session cookie when callback was hit.`, `${appUrl}/login`);
   }
   if (user.id !== stateRow.user_id) {
     return errorPage('session_owner_mismatch', `session.user_id=${user.id} state.user_id=${stateRow.user_id}`, retry);
@@ -49,28 +50,23 @@ export async function GET(request: NextRequest) {
 
   const redirectUri = process.env.VERCEL_OAUTH_REDIRECT_URI || `${process.env.APP_BASE_URL || appUrl}/api/auth/vercel/callback`;
 
-  if (!stateRow.code_verifier) {
-    return errorPage('missing_code_verifier', `state row had no PKCE code_verifier saved (likely from before PKCE rollout). Click retry to start a fresh OAuth flow.`, retry);
-  }
-
   let access_token: string;
+  let team_id: string | undefined;
   try {
-    const tokens = await exchangeVercelCode(code, redirectUri, stateRow.code_verifier);
+    const tokens = await exchangeVercelCode(code, redirectUri);
     access_token = tokens.access_token;
+    team_id = tokens.team_id ?? teamIdFromCallback ?? undefined;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    return errorPage('token_exchange', `redirectUri=${redirectUri}\nerror=${msg}`, retry);
+    return errorPage('token_exchange', `redirectUri=${redirectUri}\nclient_id=${process.env.VERCEL_CLIENT_ID}\nerror=${msg}`, retry);
   }
 
-  try {
-    await validateVercelToken(access_token);
-  } catch (validationErr) {
-    console.warn('[vercel callback] token validation warn (non-fatal):', validationErr);
-  }
+  const updateData: Record<string, string | null> = { vercel_access_token: access_token };
+  if (team_id) updateData.vercel_team_id = team_id;
 
   const { error: updateErr } = await db
     .from('users')
-    .update({ vercel_access_token: access_token })
+    .update(updateData)
     .eq('id', user.id);
 
   if (updateErr) {

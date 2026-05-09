@@ -1,38 +1,16 @@
-import crypto from 'crypto';
-
 const VERCEL_API = 'https://api.vercel.com';
-const VERCEL_OIDC_TOKEN_URL = 'https://api.vercel.com/login/oauth/token';
-const VERCEL_OIDC_USERINFO_URL = 'https://api.vercel.com/login/oauth/userinfo';
+const VERCEL_TOKEN_URL = 'https://api.vercel.com/v2/oauth/access_token';
+const INTEGRATION_SLUG = 'botluma';
 
-function base64UrlEncode(buf: Buffer): string {
-  return buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-
-export function generatePkcePair(): { code_verifier: string; code_challenge: string } {
-  const code_verifier = base64UrlEncode(crypto.randomBytes(32));
-  const code_challenge = base64UrlEncode(crypto.createHash('sha256').update(code_verifier).digest());
-  return { code_verifier, code_challenge };
-}
-
-export function getVercelOAuthUrl(state: string, redirectUri: string, codeChallenge: string): string {
-  const params = new URLSearchParams({
-    client_id: process.env.VERCEL_CLIENT_ID!,
-    redirect_uri: redirectUri,
-    state,
-    response_type: 'code',
-    scope: 'openid email profile offline_access',
-    code_challenge: codeChallenge,
-    code_challenge_method: 'S256',
-  });
-  return `https://vercel.com/oauth/authorize?${params}`;
+export function getVercelInstallUrl(state: string): string {
+  return `https://vercel.com/integrations/${INTEGRATION_SLUG}/new?state=${encodeURIComponent(state)}`;
 }
 
 export async function exchangeVercelCode(
   code: string,
   redirectUri: string,
-  codeVerifier: string
-): Promise<{ access_token: string; refresh_token?: string; id_token?: string }> {
-  const res = await fetch(VERCEL_OIDC_TOKEN_URL, {
+): Promise<{ access_token: string; team_id?: string; installation_id?: string }> {
+  const res = await fetch(VERCEL_TOKEN_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
@@ -41,12 +19,11 @@ export async function exchangeVercelCode(
       client_id: process.env.VERCEL_CLIENT_ID!,
       client_secret: process.env.VERCEL_CLIENT_SECRET!,
       redirect_uri: redirectUri,
-      code_verifier: codeVerifier,
     }),
   });
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`Vercel token exchange failed: ${text}`);
+    throw new Error(`Vercel token exchange failed (${res.status}): ${text}`);
   }
   return res.json();
 }
@@ -62,20 +39,17 @@ export interface VercelProject {
   };
 }
 
-export async function listVercelProjects(token: string): Promise<VercelProject[]> {
-  const res = await fetch(`${VERCEL_API}/v9/projects?limit=50`, {
+export async function listVercelProjects(token: string, teamId?: string | null): Promise<VercelProject[]> {
+  const url = teamId
+    ? `${VERCEL_API}/v9/projects?limit=50&teamId=${encodeURIComponent(teamId)}`
+    : `${VERCEL_API}/v9/projects?limit=50`;
+  const res = await fetch(url, {
     headers: { Authorization: `Bearer ${token}` },
   });
-  if (!res.ok) throw new Error('Token de Vercel inválido o expirado');
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Token de Vercel inválido o expirado (${res.status}): ${text}`);
+  }
   const data = await res.json();
   return data.projects ?? [];
-}
-
-export async function validateVercelToken(token: string): Promise<{ username: string }> {
-  const res = await fetch(VERCEL_OIDC_USERINFO_URL, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) throw new Error('Token inválido');
-  const data = await res.json();
-  return { username: data.preferred_username ?? data.email ?? data.sub };
 }
