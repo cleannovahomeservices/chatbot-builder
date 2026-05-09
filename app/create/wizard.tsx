@@ -41,6 +41,7 @@ export function CreateWizard({
   const [githubConnected, setGithubConnected] = useState<boolean | null>(null);
   const [vercelProjects, setVercelProjects] = useState<VercelProject[]>([]);
   const [vercelConnected, setVercelConnected] = useState(false);
+  const [vercelSearch, setVercelSearch] = useState("");
   const [selectedRepo, setSelectedRepo] = useState("");
   const [selectedVercelProject, setSelectedVercelProject] = useState<VercelProject | null>(null);
   const [chatbotName, setChatbotName] = useState("");
@@ -552,24 +553,58 @@ export function CreateWizard({
                     </button>
                   </div>
                 ) : (
-                  <div className="max-h-60 overflow-y-auto rounded-xl border border-white/10 bg-white/[0.03]">
-                    {vercelProjects.length === 0 ? (
-                      <div className="p-6 text-center text-white/40 text-sm">No se encontraron proyectos</div>
-                    ) : (
-                      vercelProjects.map((p) => (
-                        <button
-                          key={p.id}
-                          onClick={() => setSelectedVercelProject(p)}
-                          className={`w-full flex items-center justify-between px-4 py-3 text-left text-sm transition border-b border-white/5 last:border-0 cursor-pointer ${selectedVercelProject?.id === p.id ? "bg-violet-500/20 text-white" : "text-white/70 hover:bg-white/5"}`}
-                        >
-                          <span>{p.name}</span>
-                          <span className="text-xs text-white/30 border border-white/10 rounded px-1.5 py-0.5">
-                            {p.framework ?? "static"}
-                          </span>
-                        </button>
-                      ))
-                    )}
-                  </div>
+                  <>
+                    <p className="text-xs text-white/35 mb-3 leading-relaxed">
+                      Solo los proyectos HTML estáticos son compatibles con la inyección directa vía Vercel.
+                      Para Next.js u otros frameworks, conecta con <button onClick={() => switchMethod("github")} className="text-violet-400 underline cursor-pointer">GitHub</button>.
+                    </p>
+                    <input
+                      type="text"
+                      placeholder="Buscar proyecto..."
+                      value={vercelSearch}
+                      onChange={(e) => setVercelSearch(e.target.value)}
+                      className="w-full mb-2 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-violet-500/50 transition"
+                    />
+                    <div className="max-h-60 overflow-y-auto rounded-xl border border-white/10 bg-white/[0.03]">
+                      {(() => {
+                        const SSR = new Set(['nextjs','nuxtjs','remix','sveltekit','express','hydrogen','angular']);
+                        const filtered = vercelProjects.filter(p =>
+                          p.name.toLowerCase().includes(vercelSearch.toLowerCase())
+                        );
+                        if (filtered.length === 0) return (
+                          <div className="p-6 text-center text-white/40 text-sm">No se encontraron proyectos</div>
+                        );
+                        return filtered.map((p) => {
+                          const available = !!p.link || !SSR.has(p.framework ?? '');
+                          return (
+                            <button
+                              key={p.id}
+                              onClick={() => available ? setSelectedVercelProject(p) : undefined}
+                              disabled={!available}
+                              className={`w-full flex items-center justify-between px-4 py-3 text-left text-sm transition border-b border-white/5 last:border-0
+                                ${selectedVercelProject?.id === p.id ? "bg-violet-500/20 text-white" : available ? "text-white/70 hover:bg-white/5 cursor-pointer" : "text-white/30 cursor-not-allowed"}`}
+                            >
+                              <span>{p.name}</span>
+                              <div className="flex items-center gap-2 shrink-0">
+                                <span className="text-xs text-white/25 border border-white/10 rounded px-1.5 py-0.5">
+                                  {p.framework ?? "static"}
+                                </span>
+                                {available ? (
+                                  <span className="text-xs text-emerald-400 border border-emerald-500/25 rounded px-1.5 py-0.5 bg-emerald-500/5">
+                                    Disponible
+                                  </span>
+                                ) : (
+                                  <span className="text-xs text-red-400 border border-red-500/25 rounded px-1.5 py-0.5 bg-red-500/5">
+                                    Solo GitHub
+                                  </span>
+                                )}
+                              </div>
+                            </button>
+                          );
+                        });
+                      })()}
+                    </div>
+                  </>
                 )}
               </>
             )}
