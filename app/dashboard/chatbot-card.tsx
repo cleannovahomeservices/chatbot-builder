@@ -203,12 +203,6 @@ export function ChatbotCard({ chatbot: initial }: { chatbot: Chatbot }) {
               <span className="text-xs text-white/30 shrink-0">Webhook:</span>
               <span className="text-xs font-mono text-violet-300 truncate">{chatbot.n8n_webhook_url}</span>
             </div>
-            {reinjectStatus === 'error' && reinjectMessage && (
-              <p className="text-xs text-orange-400/70 mt-2">{reinjectMessage}</p>
-            )}
-            {reinjectStatus === 'ok' && reinjectMessage && (
-              <p className="text-xs text-emerald-400/70 mt-2">{reinjectMessage}</p>
-            )}
           </div>
 
           <div className="flex flex-col items-end gap-2 shrink-0">
@@ -222,22 +216,6 @@ export function ChatbotCard({ chatbot: initial }: { chatbot: Chatbot }) {
             >
               Personalizar
             </button>
-            {chatbot.github_repo && (
-              <button
-                onClick={reinjectWidget}
-                disabled={reinjectStatus === 'loading' || loading || deleting}
-                className={`text-xs px-3 py-1.5 rounded-lg border transition-colors cursor-pointer disabled:opacity-40 ${
-                  reinjectStatus === 'ok' ? 'border-emerald-500/30 text-emerald-400 bg-emerald-500/5'
-                  : reinjectStatus === 'error' ? 'border-orange-500/30 text-orange-400 bg-orange-500/5'
-                  : 'border-white/20 text-white/60 hover:bg-white/5 hover:border-white/30'
-                }`}
-              >
-                {reinjectStatus === 'loading' ? '…'
-                  : reinjectStatus === 'ok' ? '✓ Reconectado'
-                  : reinjectStatus === 'error' ? '↻ Reintentar'
-                  : '↻ Reconectar'}
-              </button>
-            )}
             <button
               onClick={toggleStatus}
               disabled={loading || deleting}
