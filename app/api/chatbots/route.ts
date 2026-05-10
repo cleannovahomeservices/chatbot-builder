@@ -3,7 +3,6 @@ import { getSession } from '@/lib/session';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { createChatbotWorkflow } from '@/lib/n8n';
 import { injectWidget } from '@/lib/github';
-import { injectWidgetViaVercel } from '@/lib/vercel-deploy';
 import crypto from 'crypto';
 
 export async function POST(request: NextRequest) {
@@ -11,11 +10,11 @@ export async function POST(request: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const {
-    name, systemPrompt, githubRepo, vercelProjectId, vercelProjectName, vercelGithubRepo,
+    name, systemPrompt, githubRepo,
     primaryColor, secondaryColor, widgetStyle, iconType, sourceUrl,
   } = await request.json();
 
-  if (!name || !systemPrompt || (!githubRepo && !vercelProjectId)) {
+  if (!name || !systemPrompt || !githubRepo) {
     return NextResponse.json({ error: 'Faltan campos requeridos' }, { status: 400 });
   }
 
@@ -39,10 +38,8 @@ export async function POST(request: NextRequest) {
     let injectReason: string | undefined;
     let injectFile: string | undefined;
     let injectPrUrl: string | undefined;
-    const targetRepo = githubRepo ?? vercelGithubRepo;
-
-    if (targetRepo && user.github_access_token) {
-      const [owner, repo] = targetRepo.split('/');
+    if (githubRepo && user.github_access_token) {
+      const [owner, repo] = githubRepo.split('/');
       const result = await injectWidget(
         user.github_access_token, owner, repo, webhookUrl, name, appUrl,
         colors.primary, colors.secondary, colors.style, colors.icon,
@@ -51,19 +48,6 @@ export async function POST(request: NextRequest) {
       injectReason = result.reason;
       injectFile = result.file;
       injectPrUrl = result.prUrl;
-    } else if (vercelProjectId && user.vercel_access_token) {
-      const result = await injectWidgetViaVercel(
-        user.vercel_access_token, vercelProjectId, webhookUrl, appUrl,
-        user.vercel_team_id,
-      );
-      widgetInjected = result.ok;
-      if (result.isSSR) {
-        injectReason = 'SSR_NEEDS_GITHUB';
-      } else if (result.staged) {
-        injectReason = `STAGED:${result.deployUrl ?? ''}`;
-      } else {
-        injectReason = result.error ?? undefined;
-      }
     } else if (!user.github_access_token) {
       injectReason = 'no GitHub token on account';
     }
@@ -75,8 +59,8 @@ export async function POST(request: NextRequest) {
       system_prompt: systemPrompt,
       n8n_workflow_id: workflowId,
       n8n_webhook_url: webhookUrl,
-      github_repo: targetRepo ?? vercelProjectName ?? null,
-      vercel_project_id: vercelProjectId ?? null,
+      github_repo: githubRepo ?? null,
+      vercel_project_id: null,
       widget_injected: widgetInjected,
       status: 'active',
     };

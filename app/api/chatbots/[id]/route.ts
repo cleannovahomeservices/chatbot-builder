@@ -3,7 +3,6 @@ import { getSession } from '@/lib/session';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { deleteWorkflow, updateWorkflowSystemPrompt } from '@/lib/n8n';
 import { removeWidget, injectWidget } from '@/lib/github';
-import { injectWidgetViaVercel } from '@/lib/vercel-deploy';
 
 export async function DELETE(
   request: NextRequest,
@@ -172,32 +171,7 @@ export async function PATCH(
       }
     }
 
-    // Try Vercel Deploy API for static projects (no SSR)
-    if (!injected && chatbot.vercel_project_id && user.vercel_access_token) {
-      try {
-        const result = await injectWidgetViaVercel(
-          user.vercel_access_token,
-          chatbot.vercel_project_id,
-          chatbot.n8n_webhook_url,
-          appUrl,
-          user.vercel_team_id,
-        );
-        injected = result.ok;
-        if (result.ok) {
-          message = 'Inyectado automáticamente en Vercel';
-        } else if (result.isSSR) {
-          message = 'NEEDS_GITHUB';
-        } else if (result.staged) {
-          message = `STAGED:${result.deployUrl ?? ''}`;
-        } else {
-          message = result.error ?? 'Error Vercel';
-        }
-      } catch (e) {
-        message = e instanceof Error ? e.message : 'Error Vercel';
-      }
-    }
-
-    if (!injected && !message) message = 'NEEDS_GITHUB';
+    if (!injected && !message) message = 'No se pudo reconectar — conecta GitHub para inyección automática';
 
     if (injected) {
       await db.from('chatbots').update({ widget_injected: true, updated_at: new Date().toISOString() }).eq('id', id);

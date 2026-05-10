@@ -4,7 +4,6 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 
 type Step = "input" | "generating" | "review" | "repo" | "creating" | "done";
-type DeployMethod = "github" | "vercel";
 
 interface Repo {
   full_name: string;
@@ -12,17 +11,9 @@ interface Repo {
   private: boolean;
 }
 
-interface VercelProject {
-  id: string;
-  name: string;
-  framework: string | null;
-  link?: { type: string; repo: string; org: string };
-}
-
 export function CreateWizard({
   initialMode,
   initialInput,
-  initialVercel,
 }: {
   initialMode: string;
   initialInput: string;
@@ -33,17 +24,10 @@ export function CreateWizard({
   const [userInput, setUserInput] = useState(initialInput);
   const [inputMode, setInputMode] = useState<"describe" | "url">(initialMode === "url" ? "url" : "describe");
   const [prompt, setPrompt] = useState("");
-  const [deployMethod, setDeployMethod] = useState<DeployMethod>(
-    initialVercel ? "vercel" : "github"
-  );
   const [repos, setRepos] = useState<Repo[]>([]);
   const [repoSearch, setRepoSearch] = useState('');
   const [githubConnected, setGithubConnected] = useState<boolean | null>(null);
-  const [vercelProjects, setVercelProjects] = useState<VercelProject[]>([]);
-  const [vercelConnected, setVercelConnected] = useState(false);
-  const [vercelSearch, setVercelSearch] = useState("");
   const [selectedRepo, setSelectedRepo] = useState("");
-  const [selectedVercelProject, setSelectedVercelProject] = useState<VercelProject | null>(null);
   const [chatbotName, setChatbotName] = useState("");
   const [error, setError] = useState("");
   const [createdChatbot, setCreatedChatbot] = useState<{
@@ -94,7 +78,7 @@ export function CreateWizard({
     }
   }
 
-  // Restore wizard state after GitHub or Vercel OAuth redirect
+  // Restore wizard state after GitHub OAuth redirect
   useEffect(() => {
     const saved = sessionStorage.getItem('wizard_resume');
     if (!saved) return;
@@ -107,27 +91,19 @@ export function CreateWizard({
       if (s.chatbotName) setChatbotName(s.chatbotName);
       setStep('repo');
       setError('');
-      if (s.deployMethod === 'vercel') {
-        setDeployMethod('vercel');
-        fetch('/api/vercel/projects').then(async (r) => {
-          const d = await r.json();
-          if (!d.error) { setVercelConnected(true); setVercelProjects(d.projects ?? []); }
-        }).catch(() => {});
-      } else {
-        fetch('/api/github/repos').then(async (r) => {
-          if (r.status === 400) { setGithubConnected(false); return; }
-          const d = await r.json();
-          setGithubConnected(true);
-          setRepos(d.repos ?? []);
-        }).catch(() => {});
-      }
+      fetch('/api/github/repos').then(async (r) => {
+        if (r.status === 400) { setGithubConnected(false); return; }
+        const d = await r.json();
+        setGithubConnected(true);
+        setRepos(d.repos ?? []);
+      }).catch(() => {});
     } catch {}
   }, []);
 
   // Generate prompt on mount only if initialInput was provided
   useEffect(() => {
     if (!initialInput.trim()) return;
-    if (sessionStorage.getItem('wizard_resume')) return; // skip if restoring
+    if (sessionStorage.getItem('wizard_resume')) return;
     async function generate() {
       try {
         let input = initialInput;
@@ -167,10 +143,7 @@ export function CreateWizard({
     setError("");
     try {
       const r = await fetch("/api/github/repos");
-      if (r.status === 400) {
-        setGithubConnected(false);
-        return;
-      }
+      if (r.status === 400) { setGithubConnected(false); return; }
       const d = await r.json();
       setGithubConnected(true);
       setRepos(d.repos ?? []);
@@ -179,57 +152,15 @@ export function CreateWizard({
     }
   }
 
-  async function loadVercelProjects() {
-    setError("");
-    try {
-      const r = await fetch("/api/vercel/projects");
-      const d = await r.json();
-      if (d.error === "Vercel no conectado") {
-        setVercelConnected(false);
-      } else {
-        setVercelConnected(true);
-        setVercelProjects(d.projects ?? []);
-      }
-    } catch {
-      setVercelConnected(false);
-    }
-  }
-
-  function goToRepo() {
-    setStep("repo");
-    setError("");
-    if (deployMethod === "github") loadRepos();
-    else loadVercelProjects();
-  }
-
-  function switchMethod(m: DeployMethod) {
-    setDeployMethod(m);
-    setSelectedRepo("");
-    setSelectedVercelProject(null);
-    setError("");
-    if (m === "github") {
-      if (githubConnected === null) loadRepos();
-    } else {
-      loadVercelProjects();
-    }
-  }
-
   async function createChatbot() {
-    const target =
-      deployMethod === "github" ? selectedRepo : selectedVercelProject?.id;
-    if (!target || !chatbotName.trim()) return;
+    if (!selectedRepo || !chatbotName.trim()) return;
     setStep("creating");
     try {
       const colors = { primaryColor: widgetPrimary, secondaryColor: widgetSecondary, widgetStyle, iconType };
-      const body =
-        deployMethod === "github"
-          ? { name: chatbotName, systemPrompt: prompt, githubRepo: selectedRepo, sourceUrl, ...colors }
-          : { name: chatbotName, systemPrompt: prompt, vercelProjectId: selectedVercelProject!.id, vercelProjectName: selectedVercelProject!.name, vercelGithubRepo: selectedVercelProject?.link ? `${selectedVercelProject.link.org}/${selectedVercelProject.link.repo}` : null, sourceUrl, ...colors };
-
       const res = await fetch("/api/chatbots", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ name: chatbotName, systemPrompt: prompt, githubRepo: selectedRepo, sourceUrl, ...colors }),
       });
       const data = await res.json();
       if (data.chatbot) {
@@ -248,9 +179,7 @@ export function CreateWizard({
     }
   }
 
-  const canCreate =
-    chatbotName.trim() &&
-    (deployMethod === "github" ? !!selectedRepo : !!selectedVercelProject);
+  const canCreate = chatbotName.trim() && !!selectedRepo;
 
   return (
     <main className="min-h-screen bg-[#0A0A0A] text-white flex flex-col items-center justify-center px-4 py-16">
@@ -342,28 +271,19 @@ export function CreateWizard({
                 <label className="flex-1">
                   <span className="text-xs text-white/50 block mb-1.5">Color principal</span>
                   <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-lg px-3 py-2">
-                    <input
-                      type="color"
-                      value={widgetPrimary}
-                      onChange={(e) => setWidgetPrimary(e.target.value)}
-                      className="w-7 h-7 rounded cursor-pointer border-0 bg-transparent p-0"
-                    />
+                    <input type="color" value={widgetPrimary} onChange={(e) => setWidgetPrimary(e.target.value)} className="w-7 h-7 rounded cursor-pointer border-0 bg-transparent p-0" />
                     <span className="text-xs font-mono text-white/70">{widgetPrimary}</span>
                   </div>
                 </label>
                 <label className="flex-1">
                   <span className="text-xs text-white/50 block mb-1.5">Color secundario</span>
                   <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-lg px-3 py-2">
-                    <input
-                      type="color"
-                      value={widgetSecondary}
-                      onChange={(e) => setWidgetSecondary(e.target.value)}
-                      className="w-7 h-7 rounded cursor-pointer border-0 bg-transparent p-0"
-                    />
+                    <input type="color" value={widgetSecondary} onChange={(e) => setWidgetSecondary(e.target.value)} className="w-7 h-7 rounded cursor-pointer border-0 bg-transparent p-0" />
                     <span className="text-xs font-mono text-white/70">{widgetSecondary}</span>
                   </div>
                 </label>
               </div>
+
               {/* Icon selector */}
               <div className="mb-4">
                 <p className="text-xs text-white/50 mb-2">Icono del chatbot</p>
@@ -375,10 +295,7 @@ export function CreateWizard({
                     { id: 'forum',  label: 'Foro',   stroke: true,  d: 'M1 1h14v10H5l-4 5V1z M9 11h13v10H20l3 3L20 21H9V11z' },
                     { id: 'pair',   label: 'Par',    stroke: false, d: 'M16 4C12 4 9 6.7 9 10c0 1.8.8 3.4 2.2 4.5l-.8 2.5 2.8-1.2c.8.3 1.8.4 2.8.4 4 0 7-2.7 7-6S20 4 16 4zM8 9C4 9 1 11.7 1 15c0 1.8.8 3.4 2.2 4.5l-.8 2.5 2.8-1.2c.8.3 1.8.4 2.8.4 4 0 7-2.7 7-6S12 9 8 9z' },
                   ] as const).map(({ id, label, d, stroke }) => (
-                    <button
-                      key={id}
-                      onClick={() => setIconType(id)}
-                      title={label}
+                    <button key={id} onClick={() => setIconType(id)} title={label}
                       className={`relative w-12 h-12 rounded-full transition-all cursor-pointer flex items-center justify-center ${iconType === id ? 'ring-2 ring-violet-500 ring-offset-2 ring-offset-[#0A0A0A]' : 'hover:ring-2 hover:ring-white/30 hover:ring-offset-2 hover:ring-offset-[#0A0A0A]'}`}
                       style={{ background: '#2a2a2a' }}
                     >
@@ -399,13 +316,9 @@ export function CreateWizard({
                 </div>
                 <div className="flex flex-wrap gap-1.5">
                   {(['bubble','minimal','rounded','dark','neon','corporate','soft','floating','compact','retro'] as const).map((st) => (
-                    <button
-                      key={st}
-                      onClick={() => setWidgetStyle(st)}
+                    <button key={st} onClick={() => setWidgetStyle(st)}
                       className={`px-3 py-1 rounded-full text-xs font-medium transition-all cursor-pointer border ${widgetStyle === st ? 'bg-violet-600 border-violet-500 text-white' : 'bg-white/5 border-white/10 text-white/50 hover:text-white hover:border-white/20'}`}
-                    >
-                      {st}
-                    </button>
+                    >{st}</button>
                   ))}
                 </div>
               </div>
@@ -423,8 +336,7 @@ export function CreateWizard({
               </div>
             </div>
 
-            <button
-              onClick={goToRepo}
+            <button onClick={loadRepos}
               className="mt-6 w-full rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 py-4 font-semibold text-white hover:from-violet-500 hover:to-indigo-500 transition active:scale-[0.99] cursor-pointer"
             >
               Continuar → Conectar tu web
@@ -432,35 +344,13 @@ export function CreateWizard({
           </div>
         )}
 
-        {/* STEP: Select repo/project */}
+        {/* STEP: Select repo */}
         {step === "repo" && (
           <div>
             <h2 className="text-2xl font-bold mb-2">¿Dónde está tu web?</h2>
-            <p className="text-white/50 mb-5">Inyectaremos el widget automáticamente.</p>
+            <p className="text-white/50 mb-5">Inyectaremos el widget automáticamente en tu repositorio de GitHub.</p>
 
-            {/* Method tabs */}
-            <div className="flex rounded-xl bg-white/5 p-1 mb-5">
-              <button
-                onClick={() => switchMethod("github")}
-                className={`flex-1 flex items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-medium transition-all cursor-pointer ${deployMethod === "github" ? "bg-white text-black shadow" : "text-white/50 hover:text-white"}`}
-              >
-                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
-                </svg>
-                GitHub
-              </button>
-              <button
-                onClick={() => switchMethod("vercel")}
-                className={`flex-1 flex items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-medium transition-all cursor-pointer ${deployMethod === "vercel" ? "bg-white text-black shadow" : "text-white/50 hover:text-white"}`}
-              >
-                <svg className="h-4 w-4" viewBox="0 0 76 65" fill="currentColor">
-                  <path d="M37.5274 0L75.0548 65H0L37.5274 0Z" />
-                </svg>
-                Vercel
-              </button>
-            </div>
-
-            {/* Chatbot name (shared) */}
+            {/* Chatbot name */}
             <div className="mb-4">
               <label className="block text-sm font-medium text-white/70 mb-2">Nombre del chatbot</label>
               <input
@@ -473,149 +363,58 @@ export function CreateWizard({
             </div>
 
             {/* GitHub repos */}
-            {deployMethod === "github" && (
-              <>
-                {githubConnected === false ? (
-                  <div className="rounded-xl border border-white/10 bg-white/[0.03] p-8 text-center">
-                    <svg className="h-8 w-8 mx-auto mb-3 text-white/30" viewBox="0 0 24 24" fill="currentColor">
-                      <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
-                    </svg>
-                    <p className="text-white/50 text-sm mb-4">Conecta tu cuenta de GitHub para ver tus repositorios</p>
-                    <button
-                      onClick={() => {
-                        sessionStorage.setItem('wizard_resume', JSON.stringify({
-                          prompt, userInput, inputMode, chatbotName,
-                        }));
-                        window.location.href = '/api/auth/github?next=/create';
-                      }}
-                      className="rounded-xl bg-white px-6 py-2.5 text-sm font-semibold text-black hover:bg-white/90 transition cursor-pointer"
-                    >
-                      Conectar GitHub →
-                    </button>
-                  </div>
-                ) : githubConnected === null ? (
-                  <div className="rounded-xl border border-white/10 bg-white/[0.03] p-6 text-center text-white/40 text-sm">
-                    Cargando repositorios…
-                  </div>
-                ) : (
-                  <div className="rounded-xl border border-white/10 bg-white/[0.03] overflow-hidden">
-                    <div className="px-3 pt-3 pb-2 border-b border-white/5">
-                      <input
-                        type="text"
-                        value={repoSearch}
-                        onChange={(e) => setRepoSearch(e.target.value)}
-                        placeholder="Buscar repositorio…"
-                        className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/25 outline-none focus:border-violet-500/60"
-                      />
+            {githubConnected === false ? (
+              <div className="rounded-xl border border-white/10 bg-white/[0.03] p-8 text-center">
+                <svg className="h-8 w-8 mx-auto mb-3 text-white/30" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
+                </svg>
+                <p className="text-white/50 text-sm mb-4">Conecta tu cuenta de GitHub para ver tus repositorios</p>
+                <button
+                  onClick={() => {
+                    sessionStorage.setItem('wizard_resume', JSON.stringify({ prompt, userInput, inputMode, chatbotName }));
+                    window.location.href = '/api/auth/github?next=/create';
+                  }}
+                  className="rounded-xl bg-white px-6 py-2.5 text-sm font-semibold text-black hover:bg-white/90 transition cursor-pointer"
+                >
+                  Conectar GitHub →
+                </button>
+              </div>
+            ) : githubConnected === null ? (
+              <div className="rounded-xl border border-white/10 bg-white/[0.03] p-6 text-center text-white/40 text-sm">
+                Cargando repositorios…
+              </div>
+            ) : (
+              <div className="rounded-xl border border-white/10 bg-white/[0.03] overflow-hidden">
+                <div className="px-3 pt-3 pb-2 border-b border-white/5">
+                  <input
+                    type="text"
+                    value={repoSearch}
+                    onChange={(e) => setRepoSearch(e.target.value)}
+                    placeholder="Buscar repositorio…"
+                    className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/25 outline-none focus:border-violet-500/60"
+                  />
+                </div>
+                <div className="max-h-52 overflow-y-auto">
+                  {repos.filter(r => r.full_name.toLowerCase().includes(repoSearch.toLowerCase())).length === 0 ? (
+                    <div className="p-6 text-center text-white/40 text-sm">
+                      {repos.length === 0 ? 'No se encontraron repositorios' : 'Sin resultados para esa búsqueda'}
                     </div>
-                    <div className="max-h-52 overflow-y-auto">
-                      {repos.filter(r => r.full_name.toLowerCase().includes(repoSearch.toLowerCase())).length === 0 ? (
-                        <div className="p-6 text-center text-white/40 text-sm">
-                          {repos.length === 0 ? 'No se encontraron repositorios' : 'Sin resultados para esa búsqueda'}
-                        </div>
-                      ) : (
-                        repos
-                          .filter(r => r.full_name.toLowerCase().includes(repoSearch.toLowerCase()))
-                          .map((r) => (
-                            <button
-                              key={r.full_name}
-                              onClick={() => setSelectedRepo(r.full_name)}
-                              className={`w-full flex items-center justify-between px-4 py-3 text-left text-sm transition border-b border-white/5 last:border-0 cursor-pointer ${selectedRepo === r.full_name ? "bg-violet-500/20 text-white" : "text-white/70 hover:bg-white/5"}`}
-                            >
-                              <span>{r.full_name}</span>
-                              {r.private && <span className="text-xs text-white/30 border border-white/10 rounded px-1.5 py-0.5">privado</span>}
-                            </button>
-                          ))
-                      )}
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
-
-            {/* Vercel projects */}
-            {deployMethod === "vercel" && (
-              <>
-                {!vercelConnected ? (
-                  <div className="rounded-xl border border-white/10 bg-white/[0.03] p-8 text-center">
-                    <div className="text-4xl mb-3">▲</div>
-                    <p className="text-white/50 text-sm mb-4">Conecta tu cuenta de Vercel para ver tus proyectos</p>
-                    <button
-                      onClick={() => {
-                        sessionStorage.setItem('wizard_resume', JSON.stringify({
-                          prompt, userInput, inputMode, chatbotName, deployMethod: 'vercel',
-                        }));
-                        window.location.href = '/api/auth/vercel?next=/create';
-                      }}
-                      className="rounded-xl bg-white px-6 py-2.5 text-sm font-semibold text-black hover:bg-white/90 transition cursor-pointer"
-                    >
-                      Conectar Vercel →
-                    </button>
-                  </div>
-                ) : (
-                  <>
-                    <p className="text-xs text-white/35 mb-3 leading-relaxed">
-                      <span className="text-emerald-400">Verde</span>: inyección automática directa.{" "}
-                      <span className="text-amber-400">Amarillo</span>: Next.js/SSR — necesita conectar GitHub también (un clic tras crear).{" "}
-                      <span className="text-red-400">Rojo</span>: usa la pestaña GitHub.
-                    </p>
-                    <input
-                      type="text"
-                      placeholder="Buscar proyecto..."
-                      value={vercelSearch}
-                      onChange={(e) => setVercelSearch(e.target.value)}
-                      className="w-full mb-2 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-violet-500/50 transition"
-                    />
-                    <div className="max-h-60 overflow-y-auto rounded-xl border border-white/10 bg-white/[0.03]">
-                      {(() => {
-                        const SSR = new Set(['nextjs','nuxtjs','remix','sveltekit','express','hydrogen','angular']);
-                        const filtered = vercelProjects.filter(p =>
-                          p.name.toLowerCase().includes(vercelSearch.toLowerCase())
-                        );
-                        if (filtered.length === 0) return (
-                          <div className="p-6 text-center text-white/40 text-sm">No se encontraron proyectos</div>
-                        );
-                        return filtered.map((p) => {
-                          const isSSR = SSR.has(p.framework ?? '');
-                          const hasGithubLink = !!p.link;
-                          // Selectable: static (always) or SSR with GitHub link (will prompt GitHub connect)
-                          const available = !isSSR || hasGithubLink;
-                          const needsGithub = isSSR && hasGithubLink;
-                          return (
-                            <button
-                              key={p.id}
-                              onClick={() => available ? setSelectedVercelProject(p) : undefined}
-                              disabled={!available}
-                              className={`w-full flex items-center justify-between px-4 py-3 text-left text-sm transition border-b border-white/5 last:border-0
-                                ${selectedVercelProject?.id === p.id ? "bg-violet-500/20 text-white" : available ? "text-white/70 hover:bg-white/5 cursor-pointer" : "text-white/30 cursor-not-allowed"}`}
-                            >
-                              <span>{p.name}</span>
-                              <div className="flex items-center gap-2 shrink-0">
-                                <span className="text-xs text-white/25 border border-white/10 rounded px-1.5 py-0.5">
-                                  {p.framework ?? "static"}
-                                </span>
-                                {needsGithub ? (
-                                  <span className="text-xs text-amber-400 border border-amber-500/25 rounded px-1.5 py-0.5 bg-amber-500/5">
-                                    Via GitHub
-                                  </span>
-                                ) : available ? (
-                                  <span className="text-xs text-emerald-400 border border-emerald-500/25 rounded px-1.5 py-0.5 bg-emerald-500/5">
-                                    Disponible
-                                  </span>
-                                ) : (
-                                  <span className="text-xs text-red-400 border border-red-500/25 rounded px-1.5 py-0.5 bg-red-500/5">
-                                    Solo GitHub
-                                  </span>
-                                )}
-                              </div>
-                            </button>
-                          );
-                        });
-                      })()}
-                    </div>
-                  </>
-                )}
-              </>
+                  ) : (
+                    repos
+                      .filter(r => r.full_name.toLowerCase().includes(repoSearch.toLowerCase()))
+                      .map((r) => (
+                        <button
+                          key={r.full_name}
+                          onClick={() => setSelectedRepo(r.full_name)}
+                          className={`w-full flex items-center justify-between px-4 py-3 text-left text-sm transition border-b border-white/5 last:border-0 cursor-pointer ${selectedRepo === r.full_name ? "bg-violet-500/20 text-white" : "text-white/70 hover:bg-white/5"}`}
+                        >
+                          <span>{r.full_name}</span>
+                          {r.private && <span className="text-xs text-white/30 border border-white/10 rounded px-1.5 py-0.5">privado</span>}
+                        </button>
+                      ))
+                  )}
+                </div>
+              </div>
             )}
 
             {error && <p className="mt-3 text-sm text-red-400">{error}</p>}
@@ -647,7 +446,7 @@ export function CreateWizard({
             <div className="inline-flex h-14 w-14 items-center justify-center rounded-full bg-emerald-500/20 mb-6 text-2xl">✓</div>
             <h2 className="text-2xl font-bold mb-2">¡Chatbot creado!</h2>
 
-            {/* Case 1: widget injected directly */}
+            {/* Widget injected directly */}
             {createdChatbot?.widget_injected && (
               <p className="text-white/50 mb-6">
                 Widget inyectado en{" "}
@@ -656,18 +455,14 @@ export function CreateWizard({
               </p>
             )}
 
-            {/* Case 2: PR created — user just needs to merge */}
+            {/* PR created */}
             {!createdChatbot?.widget_injected && injectPrUrl && (
               <div className="rounded-xl border border-violet-500/30 bg-violet-500/5 p-5 text-left mb-6">
                 <p className="text-sm font-semibold text-violet-300 mb-1">Un paso más: acepta el PR en GitHub</p>
                 <p className="text-xs text-white/50 mb-4">
-                  No podemos hacer commit directo en tu rama principal (está protegida). Hemos creado una Pull Request automáticamente.
-                  Solo tienes que abrirla y pulsar &ldquo;Merge pull request&rdquo;.
+                  Tu rama principal está protegida. Hemos creado una Pull Request automáticamente — solo tienes que abrirla y pulsar &ldquo;Merge pull request&rdquo;.
                 </p>
-                <a
-                  href={injectPrUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                <a href={injectPrUrl} target="_blank" rel="noopener noreferrer"
                   className="inline-block w-full text-center rounded-lg bg-violet-600 hover:bg-violet-500 px-4 py-2.5 text-sm font-semibold text-white transition"
                 >
                   Ver Pull Request en GitHub →
@@ -675,27 +470,8 @@ export function CreateWizard({
               </div>
             )}
 
-            {/* Case 3a: SSR project — needs GitHub */}
-            {!createdChatbot?.widget_injected && !injectPrUrl && injectReason === 'SSR_NEEDS_GITHUB' && (
-              <div className="rounded-xl border border-violet-500/30 bg-violet-500/5 p-5 text-left mb-6">
-                <p className="text-sm font-semibold text-violet-300 mb-1">Un paso más: conecta GitHub</p>
-                <p className="text-xs text-white/50 mb-4">
-                  Tu proyecto usa Next.js. Para que el widget se inyecte automáticamente, conecta tu cuenta de GitHub. Es un solo clic y después todo es automático.
-                </p>
-                <a
-                  href="/api/auth/github?next=/dashboard"
-                  className="block w-full text-center rounded-lg bg-violet-600 hover:bg-violet-500 px-4 py-2.5 text-sm font-semibold text-white transition"
-                >
-                  Conectar GitHub →
-                </a>
-                <p className="text-xs text-white/30 mt-3">
-                  Tras conectar, usa &ldquo;Reconectar widget&rdquo; en tu chatbot del dashboard.
-                </p>
-              </div>
-            )}
-
-            {/* Case 3b: could not inject at all — show manual snippet */}
-            {!createdChatbot?.widget_injected && !injectPrUrl && injectReason !== 'SSR_NEEDS_GITHUB' && (
+            {/* Could not inject */}
+            {!createdChatbot?.widget_injected && !injectPrUrl && (
               <>
                 <p className="text-white/50 mb-4">
                   Tu chatbot está activo. Añade este snippet antes del{" "}
@@ -710,8 +486,7 @@ export function CreateWizard({
               </>
             )}
 
-            <button
-              onClick={() => router.push("/dashboard")}
+            <button onClick={() => router.push("/dashboard")}
               className="w-full rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 py-4 font-semibold text-white hover:from-violet-500 hover:to-indigo-500 transition cursor-pointer"
             >
               Ver mis chatbots →
