@@ -203,6 +203,12 @@ export function ChatbotCard({ chatbot: initial }: { chatbot: Chatbot }) {
               <span className="text-xs text-white/30 shrink-0">Webhook:</span>
               <span className="text-xs font-mono text-violet-300 truncate">{chatbot.n8n_webhook_url}</span>
             </div>
+            {reinjectStatus === 'error' && reinjectMessage && (
+              <p className="text-xs text-orange-400/70 mt-2">{reinjectMessage}</p>
+            )}
+            {reinjectStatus === 'ok' && reinjectMessage && (
+              <p className="text-xs text-emerald-400/70 mt-2">{reinjectMessage}</p>
+            )}
           </div>
 
           <div className="flex flex-col items-end gap-2 shrink-0">
@@ -216,6 +222,22 @@ export function ChatbotCard({ chatbot: initial }: { chatbot: Chatbot }) {
             >
               Personalizar
             </button>
+            {chatbot.github_repo && (
+              <button
+                onClick={reinjectWidget}
+                disabled={reinjectStatus === 'loading' || loading || deleting}
+                className={`text-xs px-3 py-1.5 rounded-lg border transition-colors cursor-pointer disabled:opacity-40 ${
+                  reinjectStatus === 'ok' ? 'border-emerald-500/30 text-emerald-400 bg-emerald-500/5'
+                  : reinjectStatus === 'error' ? 'border-orange-500/30 text-orange-400 bg-orange-500/5'
+                  : 'border-white/20 text-white/60 hover:bg-white/5 hover:border-white/30'
+                }`}
+              >
+                {reinjectStatus === 'loading' ? '…'
+                  : reinjectStatus === 'ok' ? '✓ Reconectado'
+                  : reinjectStatus === 'error' ? '↻ Reintentar'
+                  : '↻ Reconectar'}
+              </button>
+            )}
             <button
               onClick={toggleStatus}
               disabled={loading || deleting}
@@ -338,35 +360,6 @@ export function ChatbotCard({ chatbot: initial }: { chatbot: Chatbot }) {
                   placeholder="Describe cómo debe comportarse tu chatbot…"
                   className="w-full resize-none rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white placeholder-white/25 outline-none focus:border-violet-500/60 focus:ring-1 focus:ring-violet-500/30"
                 />
-              </div>
-
-              {/* Reconectar widget */}
-              <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4">
-                <p className="text-sm font-medium text-white/80 mb-1">Reconectar widget</p>
-                <p className="text-xs text-white/40 mb-3">Re-inyecta el código del chatbot en tu proyecto sin cambiar la configuración.</p>
-                <button
-                  onClick={reinjectWidget}
-                  disabled={reinjectStatus === 'loading'}
-                  className={`w-full py-2 rounded-lg text-sm font-medium transition cursor-pointer disabled:opacity-50 border
-                    ${reinjectStatus === 'ok' ? 'border-emerald-500/30 text-emerald-400 bg-emerald-500/5'
-                    : reinjectStatus === 'error' ? 'border-orange-500/30 text-orange-400 bg-orange-500/5'
-                    : 'border-violet-500/30 text-violet-300 hover:bg-violet-500/10'}`}
-                >
-                  {reinjectStatus === 'loading' ? 'Reconectando…'
-                    : reinjectStatus === 'ok' ? '✓ Reconectado'
-                    : reinjectStatus === 'error' ? 'Error al reconectar'
-                    : '↻ Reconectar widget'}
-                </button>
-                {reinjectStatus === 'error' && (
-                  <div className="mt-3">
-                    <p className="text-xs text-white/40 mb-1">{reinjectMessage}</p>
-                    <p className="text-xs text-white/40 mb-2">O pega este código antes del <code className="bg-white/10 px-1 rounded">&lt;/body&gt;</code>:</p>
-                    <pre className="text-xs text-violet-300 bg-black/40 rounded-lg p-3 whitespace-pre-wrap break-all select-all">{`<script>window.ChatbotConfig={webhookUrl:"${chatbot.n8n_webhook_url}"};</script>\n<script src="https://www.botluma.com/widget.js" async defer></script>`}</pre>
-                  </div>
-                )}
-                {reinjectStatus === 'ok' && (
-                  <p className="text-xs mt-2 text-emerald-400">{reinjectMessage}</p>
-                )}
               </div>
 
               {saveError && <p className="text-sm text-red-400">{saveError}</p>}
