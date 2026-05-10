@@ -183,9 +183,15 @@ export async function PATCH(
           user.vercel_team_id,
         );
         injected = result.ok;
-        message = result.ok
-          ? 'Inyectado automáticamente en Vercel'
-          : (result.isSSR ? 'NEEDS_GITHUB' : (result.error ?? 'Error Vercel'));
+        if (result.ok) {
+          message = 'Inyectado automáticamente en Vercel';
+        } else if (result.isSSR) {
+          message = 'NEEDS_GITHUB';
+        } else if (result.staged) {
+          message = `STAGED:${result.deployUrl ?? ''}`;
+        } else {
+          message = result.error ?? 'Error Vercel';
+        }
       } catch (e) {
         message = e instanceof Error ? e.message : 'Error Vercel';
       }

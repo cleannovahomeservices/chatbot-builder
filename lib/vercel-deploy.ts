@@ -44,7 +44,7 @@ export async function injectWidgetViaVercel(
   webhookUrl: string,
   appUrl: string,
   teamId?: string | null,
-): Promise<{ ok: boolean; isSSR?: boolean; error?: string }> {
+): Promise<{ ok: boolean; isSSR?: boolean; staged?: boolean; deployUrl?: string; error?: string }> {
   const auth = { Authorization: `Bearer ${token}` };
 
   // 1. Latest READY production deployment
@@ -66,21 +66,21 @@ export async function injectWidgetViaVercel(
 
   // SSR projects have serverless functions — cannot inject by copying files
   const hasServerless = allFiles.some(f => f.type === 'lambda' || f.type === 'middleware');
-  if (hasServerless) {
-    return { ok: false, isSSR: true };
-  }
+  if (hasServerless) return { ok: false, isSSR: true };
 
-  // 3. Find HTML files (static sites only)
+  // 3. Find HTML files
   const htmlFiles = allFiles.filter(f => f.path.endsWith('.html'));
-  if (!htmlFiles.length) return { ok: false, error: 'No HTML files found — project may be empty or SSR' };
+  if (!htmlFiles.length) return { ok: false, error: 'No HTML files found in deployment' };
 
-  // 4. Get current production aliases (to re-assign them to the new deployment)
-  const aliasRes = await fetch(
-    `${VERCEL_API}/v2/deployments/${dep.uid}/aliases${tqs(teamId)}`,
+  // 4. Get existing production domains from the project
+  const domainsRes = await fetch(
+    `${VERCEL_API}/v9/projects/${encodeURIComponent(projectId)}/domains${tqs(teamId)}`,
     { headers: auth }
   );
-  const productionAliases: string[] = aliasRes.ok
-    ? ((await aliasRes.json()).aliases ?? []).map((a: { alias: string }) => a.alias)
+  const projectDomains: string[] = domainsRes.ok
+    ? ((await domainsRes.json()).domains ?? [])
+        .filter((d: { verified: boolean }) => d.verified)
+        .map((d: { name: string }) => d.name)
     : [];
 
   // 5. Download + inject snippet
@@ -103,7 +103,7 @@ export async function injectWidgetViaVercel(
 
   if (!modified.length) return { ok: false, error: 'Widget already present in all HTML files' };
 
-  // 6. New deployment: modified files (inline) + unchanged static files by SHA
+  // 6. Create new deployment
   const modPaths = new Set(modified.map(f => f.file));
   const refs = allFiles
     .filter(f => f.type === 'file' && !modPaths.has(f.path))
@@ -126,19 +126,46 @@ export async function injectWidgetViaVercel(
 
   const newDep = await nRes.json();
   const newDepId: string | undefined = newDep.id ?? newDep.uid;
+  const newDepUrl: string | undefined = newDep.url ? `https://${newDep.url}` : undefined;
 
-  // 7. Promote: assign all previous production aliases to the new deployment
-  if (newDepId && productionAliases.length > 0) {
-    await Promise.allSettled(
-      productionAliases.map(alias =>
+  // Check if Vercel already assigned the production domains automatically
+  const autoAliases: string[] = newDep.alias ?? newDep.aliases ?? [];
+  const alreadyPromoted = projectDomains.length === 0 ||
+    projectDomains.some(d => autoAliases.includes(d));
+
+  if (alreadyPromoted) return { ok: true, deployUrl: newDepUrl };
+
+  // 7. Manually assign each project domain to the new deployment
+  if (newDepId && projectDomains.length > 0) {
+    const assignResults = await Promise.allSettled(
+      projectDomains.map(domain =>
         fetch(`${VERCEL_API}/v2/deployments/${newDepId}/aliases${tqs(teamId)}`, {
           method: 'POST',
           headers: { ...auth, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ alias }),
+          body: JSON.stringify({ alias: domain }),
+        }).then(async r => {
+          if (!r.ok) throw new Error(`${r.status}: ${await r.text()}`);
+          return r.json();
         })
       )
     );
+
+    const anyPromoted = assignResults.some(r => r.status === 'fulfilled');
+    if (anyPromoted) return { ok: true, deployUrl: newDepUrl };
+
+    // Log the first error to understand why it failed
+    const firstErr = assignResults.find(r => r.status === 'rejected') as PromiseRejectedResult | undefined;
+    const aliasError = firstErr?.reason?.message ?? 'alias assignment failed';
+    console.error('[vercel-deploy] alias assignment error:', aliasError);
+
+    // Deployment was created but not promoted — return staged warning
+    return {
+      ok: false,
+      staged: true,
+      deployUrl: newDepUrl,
+      error: `STAGED:${aliasError}`,
+    };
   }
 
-  return { ok: true };
+  return { ok: true, deployUrl: newDepUrl };
 }

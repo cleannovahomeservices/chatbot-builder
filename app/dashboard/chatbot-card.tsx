@@ -369,7 +369,20 @@ export function ChatbotCard({ chatbot: initial }: { chatbot: Chatbot }) {
                     </a>
                   </div>
                 )}
-                {reinjectStatus === 'error' && reinjectMessage !== 'NEEDS_GITHUB' && (
+                {reinjectStatus === 'error' && reinjectMessage.startsWith('STAGED:') && (
+                  <div className="mt-3 rounded-lg border border-amber-500/20 bg-amber-500/5 p-3">
+                    <p className="text-xs text-white/60 mb-2">Deployment creado correctamente pero Vercel lo dejó en &ldquo;Staged&rdquo;. Actívalo en el dashboard de Vercel.</p>
+                    <a
+                      href="https://vercel.com/dashboard"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="block w-full text-center py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-xs font-semibold text-white transition"
+                    >
+                      Abrir Vercel Dashboard →
+                    </a>
+                  </div>
+                )}
+                {reinjectStatus === 'error' && reinjectMessage !== 'NEEDS_GITHUB' && !reinjectMessage.startsWith('STAGED:') && (
                   <div className="mt-3">
                     <p className="text-xs text-white/40 mb-2">Pega este código antes del <code className="bg-white/10 px-1 rounded">&lt;/body&gt;</code> de tu web:</p>
                     <pre className="text-xs text-violet-300 bg-black/40 rounded-lg p-3 whitespace-pre-wrap break-all select-all">{`<script>window.ChatbotConfig={webhookUrl:"${chatbot.n8n_webhook_url}"};</script>\n<script src="https://www.botluma.com/widget.js" async defer></script>`}</pre>

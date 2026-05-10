@@ -57,7 +57,13 @@ export async function POST(request: NextRequest) {
         user.vercel_team_id,
       );
       widgetInjected = result.ok;
-      injectReason = result.isSSR ? 'SSR_NEEDS_GITHUB' : (result.error ?? undefined);
+      if (result.isSSR) {
+        injectReason = 'SSR_NEEDS_GITHUB';
+      } else if (result.staged) {
+        injectReason = `STAGED:${result.deployUrl ?? ''}`;
+      } else {
+        injectReason = result.error ?? undefined;
+      }
     } else if (!user.github_access_token) {
       injectReason = 'no GitHub token on account';
     }
