@@ -218,6 +218,7 @@ export async function removeWidget(
   ].filter(Boolean) as string[];
 
   const escaped = chatbotName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  let firstRemoved: string | undefined;
 
   for (const filePath of candidates) {
     const res = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/contents/${filePath}`, { headers });
@@ -228,12 +229,12 @@ export async function removeWidget(
 
     if (!content.includes(`<!-- Chatbot: ${chatbotName} -->`) && !content.includes(`{/* Chatbot: ${chatbotName} */}`)) continue;
 
-    // Remove ALL HTML-style snippets: <!-- Chatbot: NAME --> + 2 script lines
+    // Remove ALL HTML-style snippets for this chatbot
     let updated = content.replace(
       new RegExp(`\\n?[ \\t]*<!-- Chatbot: ${escaped} -->[\\s\\S]*?widget\\.js" async defer><\\/script>`, 'g'),
       ''
     );
-    // Remove ALL JSX-style snippets: {/* Chatbot: NAME */} + 2 script tags
+    // Remove ALL JSX-style snippets for this chatbot
     updated = updated.replace(
       new RegExp(`\\n?[ \\t]*\\{/\\* Chatbot: ${escaped} \\*/\\}[\\s\\S]*?widget\\.js" async defer />[ \\t]*`, 'g'),
       ''
@@ -249,9 +250,11 @@ export async function removeWidget(
         sha: file.sha,
       }),
     });
-    if (putRes.ok) return { removed: true, file: filePath };
+    if (putRes.ok && !firstRemoved) firstRemoved = filePath;
+    // Continue to remove from ALL files, not just the first
   }
 
+  if (firstRemoved) return { removed: true, file: firstRemoved };
   return { removed: false, reason: 'widget no encontrado en ningún archivo' };
 }
 
@@ -428,12 +431,10 @@ async function tryInjectIntoMarkupFile(
   if (!file.content) return { ok: false, error: 'contenido vacío (archivo demasiado grande)' };
   const raw = Buffer.from(file.content, 'base64').toString('utf-8');
 
-  // Remove ALL existing injections for this chatbot before re-injecting
-  const escaped = chatbotName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const content = raw.replace(
-    new RegExp(`\\n?[ \\t]*<!-- Chatbot: ${escaped} -->[\\s\\S]*?widget\\.js" async defer><\\/script>`, 'g'),
-    ''
-  );
+  // Remove ALL existing chatbot injections (any name) to avoid duplicates
+  const content = raw
+    .replace(/\n?[ \t]*<!-- Chatbot: [^\n]+ -->\n[ \t]*<script>window\.ChatbotConfig[^\n]+<\/script>\n[ \t]*<script src="[^\n]+\/widget\.js" async defer><\/script>/g, '')
+    .replace(/\n?[ \t]*<!-- Chatbot: [^\n]+ -->\n[ \t]*<script>[^\n]+<\/script>\n[ \t]*<script src="[^\n]+\/widget\.js" async defer><\/script>/g, '');
 
   const configJson = `{webhookUrl:"${webhookUrl}",name:"${chatbotName}",primaryColor:"${primaryColor}",secondaryColor:"${secondaryColor}",style:"${widgetStyle}",icon:"${iconType}"}`;
   const snippet = `\n  <!-- Chatbot: ${chatbotName} -->\n  <script>window.ChatbotConfig=${configJson};</script>\n  <script src="${appUrl}/widget.js" async defer></script>`;
