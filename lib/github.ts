@@ -151,12 +151,25 @@ export async function injectWidget(
   if (!injectResult) {
     const htmlFiles = files
       .filter((f) => (f.endsWith('.html') || f.endsWith('.htm')) && !f.includes('/vendor/'))
-      .sort((a, b) => a.split('/').length - b.split('/').length || a.length - b.length)
-      .slice(0, 5);
+      .sort((a, b) => {
+        // Root-level files first, then index.html priority, then alphabetical
+        const depthDiff = a.split('/').length - b.split('/').length;
+        if (depthDiff !== 0) return depthDiff;
+        const aIndex = a === 'index.html' || a.endsWith('/index.html') ? 0 : 1;
+        const bIndex = b === 'index.html' || b.endsWith('/index.html') ? 0 : 1;
+        return aIndex - bIndex || a.localeCompare(b);
+      });
 
-    for (const path of htmlFiles) {
-      const result = await tryInjectIntoMarkupFile(token, owner, repo, path, webhookUrl, chatbotName, appUrl, primaryColor, secondaryColor, widgetStyle, iconType);
-      if (result.ok) { injectResult = { injected: !result.prUrl, file: path, prUrl: result.prUrl }; break; }
+    if (htmlFiles.length > 0) {
+      const result = await injectIntoAllHtmlFiles(
+        token, owner, repo, htmlFiles, webhookUrl, chatbotName, appUrl,
+        primaryColor, secondaryColor, widgetStyle, iconType,
+      );
+      if (result.ok) {
+        injectResult = { injected: !result.prUrl, file: result.files[0], prUrl: result.prUrl };
+      } else {
+        return { injected: false, reason: result.error };
+      }
     }
   }
 
@@ -398,6 +411,126 @@ async function tryCreatePR(
   if (!prRes.ok) { console.error('[inject] PR creation failed'); return null; }
   const prData = await prRes.json();
   return prData.html_url ?? null;
+}
+
+// Injects into ALL HTML files in a single batch commit
+async function injectIntoAllHtmlFiles(
+  token: string,
+  owner: string,
+  repo: string,
+  htmlFiles: string[],
+  webhookUrl: string,
+  chatbotName: string,
+  appUrl: string,
+  primaryColor: string,
+  secondaryColor: string,
+  widgetStyle: string,
+  iconType: string,
+): Promise<{ ok: boolean; files: string[]; prUrl?: string; error?: string }> {
+  const headers = makeHeaders(token);
+
+  const repoRes = await fetch(`${GITHUB_API}/repos/${owner}/${repo}`, { headers });
+  if (!repoRes.ok) return { ok: false, files: [], error: `repo info ${repoRes.status}` };
+  const repoData = await repoRes.json();
+  const defaultBranch: string = repoData.default_branch ?? 'main';
+
+  const refRes = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/git/ref/heads/${defaultBranch}`, { headers });
+  if (!refRes.ok) return { ok: false, files: [], error: `ref ${refRes.status}` };
+  const headSha: string = (await refRes.json()).object.sha;
+
+  const baseCommitRes = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/git/commits/${headSha}`, { headers });
+  if (!baseCommitRes.ok) return { ok: false, files: [], error: `base commit ${baseCommitRes.status}` };
+  const baseTreeSha: string = (await baseCommitRes.json()).tree.sha;
+
+  const configJson = `{webhookUrl:"${webhookUrl}",name:"${chatbotName}",primaryColor:"${primaryColor}",secondaryColor:"${secondaryColor}",style:"${widgetStyle}",icon:"${iconType}"}`;
+  const snippet = `\n  <!-- Chatbot: ${chatbotName} -->\n  <script>window.ChatbotConfig=${configJson};</script>\n  <script src="${appUrl}/widget.js" async defer></script>`;
+  const escaped = chatbotName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+  const treeItems: { path: string; mode: string; type: string; sha: string }[] = [];
+  const modifiedFiles: string[] = [];
+
+  for (const filePath of htmlFiles) {
+    const res = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/contents/${filePath}`, { headers });
+    if (!res.ok) continue;
+    const file = await res.json();
+    if (!file.content) continue;
+
+    const raw = Buffer.from(file.content, 'base64').toString('utf-8');
+    const content = raw.replace(
+      new RegExp(`\\n?[ \\t]*<!-- Chatbot: ${escaped} -->[\\s\\S]*?widget\\.js" async defer><\\/script>`, 'g'),
+      ''
+    );
+
+    let modified: string | null = null;
+    if (content.includes('</body>')) {
+      modified = content.replace('</body>', `${snippet}\n</body>`);
+    } else if (content.includes('</html>')) {
+      modified = content + snippet;
+    }
+    if (!modified) continue;
+
+    const blobRes = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/git/blobs`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ content: modified, encoding: 'utf-8' }),
+    });
+    if (!blobRes.ok) continue;
+    const blob = await blobRes.json();
+    treeItems.push({ path: filePath, mode: '100644', type: 'blob', sha: blob.sha });
+    modifiedFiles.push(filePath);
+  }
+
+  if (treeItems.length === 0) return { ok: false, files: [], error: 'no HTML files with </body> found' };
+
+  const newTreeRes = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/git/trees`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ base_tree: baseTreeSha, tree: treeItems }),
+  });
+  if (!newTreeRes.ok) return { ok: false, files: [], error: `create tree ${newTreeRes.status}` };
+  const newTreeSha: string = (await newTreeRes.json()).sha;
+
+  const commitRes = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/git/commits`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      message: `Add ${chatbotName} chatbot widget`,
+      tree: newTreeSha,
+      parents: [headSha],
+    }),
+  });
+  if (!commitRes.ok) return { ok: false, files: [], error: `create commit ${commitRes.status}` };
+  const newCommitSha: string = (await commitRes.json()).sha;
+
+  // Try direct branch update
+  const updateRes = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/git/refs/heads/${defaultBranch}`, {
+    method: 'PATCH',
+    headers,
+    body: JSON.stringify({ sha: newCommitSha }),
+  });
+  if (updateRes.ok) return { ok: true, files: modifiedFiles };
+
+  // Fallback: create PR
+  const branchName = `chatbot-widget-${Date.now()}`;
+  const branchRes = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/git/refs`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ ref: `refs/heads/${branchName}`, sha: newCommitSha }),
+  });
+  if (!branchRes.ok) return { ok: false, files: [], error: 'no se pudo crear rama para PR' };
+
+  const prRes = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/pulls`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      title: `Add ${chatbotName} chatbot widget`,
+      head: branchName,
+      base: defaultBranch,
+      body: 'Este PR añade el widget del chatbot en todas las páginas HTML.',
+    }),
+  });
+  if (!prRes.ok) return { ok: false, files: [], error: 'no se pudo crear PR' };
+  return { ok: true, files: modifiedFiles, prUrl: (await prRes.json()).html_url };
 }
 
 async function tryInjectIntoMarkupFile(
