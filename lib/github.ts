@@ -151,12 +151,19 @@ export async function injectWidget(
   if (!injectResult) {
     const htmlFiles = files
       .filter((f) => (f.endsWith('.html') || f.endsWith('.htm')) && !f.includes('/vendor/'))
-      .sort((a, b) => a.split('/').length - b.split('/').length || a.length - b.length)
-      .slice(0, 5);
+      .sort((a, b) => {
+        // Shallowest depth first, then index.html has priority, then alphabetical
+        const depthDiff = a.split('/').length - b.split('/').length;
+        if (depthDiff !== 0) return depthDiff;
+        const aIsIndex = (a === 'index.html' || a.endsWith('/index.html')) ? 0 : 1;
+        const bIsIndex = (b === 'index.html' || b.endsWith('/index.html')) ? 0 : 1;
+        return aIsIndex - bIsIndex || a.localeCompare(b);
+      });
 
     for (const path of htmlFiles) {
       const result = await tryInjectIntoMarkupFile(token, owner, repo, path, webhookUrl, chatbotName, appUrl, primaryColor, secondaryColor, widgetStyle, iconType);
-      if (result.ok) { injectResult = { injected: !result.prUrl, file: path, prUrl: result.prUrl }; break; }
+      // Inject into ALL html files; record first success as the primary result
+      if (result.ok && !injectResult) injectResult = { injected: !result.prUrl, file: path, prUrl: result.prUrl };
     }
   }
 
