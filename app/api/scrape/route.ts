@@ -21,7 +21,7 @@ async function scrapeWithApify(url: string): Promise<string | null> {
           startUrls: [{ url }],
           maxCrawlPages: 1,
           maxCrawlDepth: 0,
-          crawlerType: 'playwright:adaptive',
+          crawlerType: 'playwright:firefox',
         }),
         signal: AbortSignal.timeout(95_000),
       }
