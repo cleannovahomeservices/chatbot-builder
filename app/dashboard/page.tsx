@@ -3,6 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { ChatbotCard } from './chatbot-card';
+import { HelpWidget } from './help-widget';
 
 interface Chatbot {
   id: string;
@@ -94,6 +95,7 @@ export default async function DashboardPage() {
           </div>
         )}
       </div>
+      <HelpWidget />
     </main>
   );
 }
