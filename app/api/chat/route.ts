@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import Anthropic from '@anthropic-ai/sdk';
+import OpenAI from 'openai';
 import { createAdminClient } from '@/lib/supabase/admin';
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 // In-memory conversation history per session (TTL: 30 min)
 type Message = { role: 'user' | 'assistant'; content: string };
@@ -42,14 +42,17 @@ export async function POST(request: NextRequest) {
   const history = getHistory(sessionId);
   pushHistory(sessionId, 'user', message);
 
-  const response = await anthropic.messages.create({
-    model: 'claude-haiku-4-5-20251001',
+  const response = await openai.chat.completions.create({
+    model: 'gpt-4o-mini',
     max_tokens: 512,
-    system: chatbot.system_prompt,
-    messages: [...history, { role: 'user', content: message }],
+    messages: [
+      { role: 'system', content: chatbot.system_prompt },
+      ...history,
+      { role: 'user', content: message },
+    ],
   });
 
-  const output = response.content[0].type === 'text' ? response.content[0].text : 'Sin respuesta';
+  const output = response.choices[0]?.message?.content ?? 'Sin respuesta';
   pushHistory(sessionId, 'assistant', output);
 
   return NextResponse.json({ output }, { headers: CORS });
