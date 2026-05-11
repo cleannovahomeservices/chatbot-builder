@@ -48,7 +48,7 @@ async function fetchJinaText(url: string): Promise<string> {
     if (!res.ok) { console.error('[jina] failed:', res.status); return ''; }
     const text = await res.text();
     console.log(`[jina] ok for ${url}, ${text.length} chars`);
-    return text.slice(0, 15000);
+    return text.slice(0, 25000);
   } catch (e) {
     console.error('[jina] error:', e);
     return '';
@@ -217,8 +217,8 @@ async function extractFromJsBundle(url: string, html: string): Promise<string> {
             console.log('[jsbundle] tel: found:', num);
           }
         }
-        // Spanish mobile numbers (6XX/7XX)
-        for (const m of bundle.matchAll(/(?<![\\/"'\w])(\+?34[\s\-]?)?([67]\d{2}[\s\-]?\d{2}[\s\-]?\d{2}[\s\-]?\d{2})(?![\\/"'\w\d])/g)) {
+        // Spanish phones: mobile (6XX/7XX) and landlines (9XX)
+        for (const m of bundle.matchAll(/(?<![\\/"'\w])(\+?34[\s\-]?)?([679]\d{2}[\s\-]?\d{2}[\s\-]?\d{2}[\s\-]?\d{2})(?![\\/"'\w\d])/g)) {
           const num = m[0].trim();
           const digits = num.replace(/\D/g, '');
           if (digits.length >= 9 && !found.some(f => f.replace(/\D/g, '').includes(digits.slice(-8)))) {
@@ -400,6 +400,32 @@ function extractInternalLinks(html: string, baseUrl: string): string[] {
   return links.slice(0, 3);
 }
 
+// ─── JSON-LD structured data: phone and address ──────────────────────────────
+function extractJsonLdContact(html: string): string {
+  const parts: string[] = [];
+  for (const s of html.matchAll(/<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi)) {
+    try {
+      const items = JSON.parse(s[1]);
+      const list = Array.isArray(items) ? items : [items];
+      for (const item of list) {
+        if (item.telephone) parts.push(`Teléfono: ${item.telephone}`);
+        if (item.address) {
+          const a = item.address;
+          if (typeof a === 'string') {
+            parts.push(`Dirección: ${a}`);
+          } else {
+            const addr = [a.streetAddress, a.postalCode, a.addressLocality, a.addressRegion].filter(Boolean).join(', ');
+            if (addr) parts.push(`Dirección: ${addr}`);
+          }
+        }
+        if (item.email) parts.push(`Email: ${item.email}`);
+        if (item.url && !parts.some(p => p.includes('Web:'))) parts.push(`Web: ${item.url}`);
+      }
+    } catch { /* skip */ }
+  }
+  return [...new Set(parts)].join('\n');
+}
+
 // ─── Inject contact info if missing from text ────────────────────────────────
 function injectContactIfMissing(text: string, contactInfo: string): string {
   if (!contactInfo) return text;
@@ -484,13 +510,41 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Jina markdown (wa.me links visible in rendered page)
+    // Jina markdown (wa.me links and tel: links in rendered page)
     if (jinaText) {
       for (const m of jinaText.matchAll(/wa\.me\/(\d+)/gi)) {
         const num = '+' + m[1];
         if (!contactInfo.includes(m[1].slice(-9))) {
           contactInfo = contactInfo ? `${contactInfo}\nWhatsApp: ${num}` : `WhatsApp: ${num}`;
           console.log('[scrape] wa.me from jina:', num);
+        }
+      }
+      // tel: links rendered by Jina as [text](tel:XXXX)
+      for (const m of jinaText.matchAll(/\]\(tel:([+\d\s\-]{7,16})\)/gi)) {
+        const num = m[1].trim();
+        const digits = num.replace(/\D/g, '');
+        if (digits.length >= 7 && !contactInfo.replace(/\D/g, '').includes(digits.slice(-7))) {
+          contactInfo = contactInfo ? `${contactInfo}\nTeléfono: ${num}` : `Teléfono: ${num}`;
+          console.log('[scrape] tel: from jina:', num);
+        }
+      }
+    }
+
+    // JSON-LD structured data: phone and address (LocalBusiness schema)
+    if (html) {
+      const jsonLdContact = extractJsonLdContact(html);
+      if (jsonLdContact) {
+        for (const line of jsonLdContact.split('\n').filter(Boolean)) {
+          const value = line.slice(line.indexOf(': ') + 2).trim();
+          if (!value) continue;
+          const digits = value.replace(/\D/g, '');
+          const alreadyIn = digits.length >= 7
+            ? contactInfo.replace(/\D/g, '').includes(digits.slice(-7))
+            : contactInfo.toLowerCase().includes(value.toLowerCase().slice(0, 15));
+          if (!alreadyIn) {
+            contactInfo = contactInfo ? `${contactInfo}\n${line}` : line;
+            console.log('[scrape] json-ld contact:', line);
+          }
         }
       }
     }
