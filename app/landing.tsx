@@ -92,17 +92,17 @@ export function LandingPage({ isLoggedIn, username }: Props) {
   return (
     <main className="min-h-screen bg-[#0A0A0A] text-white flex flex-col">
       {/* Navbar */}
-      <nav className="flex items-center justify-between px-6 py-4 border-b border-white/5">
+      <nav className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-white/5">
         <div className="flex items-center gap-2.5">
           <Image src="/logo.png" alt="Chatbot Builder" width={32} height={32} className="rounded-lg" />
-          <span className="font-semibold text-white/90">Chatbot Builder</span>
+          <span className="font-semibold text-white/90 whitespace-nowrap">Chatbot Builder</span>
         </div>
         {isLoggedIn ? (
-          <div className="flex items-center gap-3">
-            <span className="text-sm text-white/40">Hola, {username}</span>
+          <div className="flex items-center gap-2 sm:gap-3">
+            <span className="hidden sm:block text-sm text-white/40 truncate max-w-[160px]">Hola, {username}</span>
             <a
               href="/dashboard"
-              className="rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:from-violet-500 hover:to-indigo-500 transition"
+              className="rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 px-3 sm:px-4 py-2 text-sm font-semibold text-white hover:from-violet-500 hover:to-indigo-500 transition whitespace-nowrap"
             >
               Mis chatbots →
             </a>
@@ -110,7 +110,7 @@ export function LandingPage({ isLoggedIn, username }: Props) {
         ) : (
           <button
             onClick={() => openLogin()}
-            className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-white/70 hover:bg-white/10 hover:text-white transition cursor-pointer"
+            className="rounded-xl border border-white/10 bg-white/5 px-3 sm:px-4 py-2 text-sm font-medium text-white/70 hover:bg-white/10 hover:text-white transition cursor-pointer whitespace-nowrap"
           >
             Iniciar sesión
           </button>
@@ -125,7 +125,7 @@ export function LandingPage({ isLoggedIn, username }: Props) {
           Sin código. Sin complicaciones.
         </div>
 
-        <h1 className="text-center text-5xl font-bold tracking-tight sm:text-6xl lg:text-7xl">
+        <h1 className="text-center text-4xl font-bold tracking-tight sm:text-5xl lg:text-6xl xl:text-7xl">
           Crea tu chatbot{" "}
           <span className="bg-gradient-to-r from-violet-400 to-indigo-400 bg-clip-text text-transparent">
             en 30 segundos
@@ -137,7 +137,7 @@ export function LandingPage({ isLoggedIn, username }: Props) {
         </p>
 
         {/* Card */}
-        <div className="mt-12 w-full max-w-2xl rounded-2xl border border-white/10 bg-white/[0.03] p-8 backdrop-blur-sm">
+        <div className="mt-10 w-full max-w-2xl rounded-2xl border border-white/10 bg-white/[0.03] p-5 sm:p-8 backdrop-blur-sm">
           <div className="flex rounded-xl bg-white/5 p-1">
             <button
               onClick={() => setMode("describe")}
