@@ -33,7 +33,7 @@ Return ONLY the file content or NO_CSP. No markdown fences, no explanation. Pres
 export async function generateSystemPrompt(input: string): Promise<string> {
   const msg = await client.messages.create({
     model: 'claude-sonnet-4-6',
-    max_tokens: 2048,
+    max_tokens: 6000,
     system:
       'Eres un experto en crear system prompts para chatbots de atención al cliente. Creas prompts concretos que incluyen la información real del negocio, no frases genéricas.',
     messages: [

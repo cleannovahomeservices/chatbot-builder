@@ -65,6 +65,8 @@ const CONTENT_KW = [
   'sesion','sesiones','taller','talleres','formacion','curso','actividad','programa',
   'sobre','coach','yoga','meditacion','bienestar','workshop','retreat','training',
   'course','nosotros','voz','terapeutica','musica','tienda','shop','menu','who','work',
+  'coaching','individual','grupo','circulo','circle','soberano','sovereign','app','libro',
+  'book','books','teaching','enseñanza','online','membership','community','comunidad',
 ];
 
 async function fetchSitemapUrls(url: string): Promise<string[]> {
@@ -130,7 +132,7 @@ async function fetchSitemapUrls(url: string): Promise<string[]> {
       // Prioritize: content keyword matches first, then any non-homepage pages
       const withKw = same.filter(u => CONTENT_KW.some(k => u.toLowerCase().includes(k)));
       const others = same.filter(u => u !== url && u !== url + '/' && !withKw.includes(u));
-      const result = [...withKw, ...others].slice(0, 6);
+      const result = [...withKw, ...others].slice(0, 15);
 
       if (result.length > 0) {
         console.log(`[sitemap] found ${same.length} URLs at ${sitemapUrl}, using ${result.length}`);
@@ -169,7 +171,7 @@ async function fetchSubpagesWithJina(html: string, jinaText: string, baseUrl: st
   for (const m of jinaText.matchAll(/\]\((\/[^\)\s)]+)\)/g)) addLink(m[1]);
 
   if (links.length === 0) return '';
-  const toFetch = links.slice(0, 4);
+  const toFetch = links.slice(0, 8);
   console.log(`[jina-subpages] fetching ${toFetch.length} subpages:`, toFetch);
   const results = await Promise.allSettled(toFetch.map(link => fetchJinaText(link)));
   return results
