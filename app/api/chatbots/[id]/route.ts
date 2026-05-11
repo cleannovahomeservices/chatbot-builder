@@ -53,7 +53,7 @@ export async function PATCH(
 
   // --- Customize action: update colors, system prompt, re-inject widget ---
   if (body.action === 'customize') {
-    const { primaryColor, secondaryColor, widgetStyle, iconType, systemPrompt, name, greeting, chatbotLanguage } = body as {
+    const { primaryColor, secondaryColor, widgetStyle, iconType, systemPrompt, name, greeting } = body as {
       primaryColor?: string;
       secondaryColor?: string;
       widgetStyle?: string;
@@ -61,7 +61,6 @@ export async function PATCH(
       systemPrompt?: string;
       name?: string;
       greeting?: string;
-      chatbotLanguage?: string;
     };
 
     const { data: chatbot } = await db
@@ -80,7 +79,6 @@ export async function PATCH(
     const prompt = systemPrompt !== undefined ? systemPrompt : chatbot.system_prompt;
     const updatedName = name?.trim() || chatbot.name;
     const updatedGreeting = greeting !== undefined ? greeting : (chatbot.greeting ?? '¡Hola! ¿En qué puedo ayudarte hoy?');
-    const updatedLanguage = chatbotLanguage || chatbot.chatbot_language || 'es';
 
     // Re-inject widget with new config
     if (chatbot.github_repo && user.github_access_token && chatbot.status === 'active') {
@@ -101,7 +99,6 @@ export async function PATCH(
       system_prompt: prompt,
       name: updatedName,
       greeting: updatedGreeting,
-      chatbot_language: updatedLanguage,
     };
     let result = await db
       .from('chatbots')

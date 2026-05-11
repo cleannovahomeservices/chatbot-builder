@@ -92,6 +92,7 @@ export function CreateWizard({
   const [widgetStyle, setWidgetStyle] = useState('bubble');
   const [iconType, setIconType] = useState('chat');
   const [sourceUrl, setSourceUrl] = useState<string>("");
+  const [wizardGreeting, setWizardGreeting] = useState('¡Hola! ¿En qué puedo ayudarte hoy?');
   const [deployMethod, setDeployMethod] = useState<'github' | 'download' | null>(null);
 
   async function startGenerating() {
@@ -114,13 +115,16 @@ export function CreateWizard({
           setWidgetSecondary(d.secondaryColor);
         }
         if (d.widgetStyle) setWidgetStyle(d.widgetStyle);
-        if (d.detectedLanguage) { lang = d.detectedLanguage; }
+        if (d.detectedLanguage) {
+          lang = d.detectedLanguage;
+          setWizardGreeting(lang === 'en' ? 'Hi! How can I help you today?' : '¡Hola! ¿En qué puedo ayudarte hoy?');
+        }
         setSourceUrl(userInput);
       }
       const r = await fetch("/api/generate-prompt", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ input, language: lang }),
+        body: JSON.stringify({ input }),
       });
       const d = await r.json();
       if (d.prompt) { setPrompt(d.prompt); setStep("review"); }
@@ -175,13 +179,16 @@ export function CreateWizard({
             setWidgetSecondary(d.secondaryColor);
           }
           if (d.widgetStyle) setWidgetStyle(d.widgetStyle);
-          if (d.detectedLanguage) { lang = d.detectedLanguage; }
+          if (d.detectedLanguage) {
+            lang = d.detectedLanguage;
+            setWizardGreeting(lang === 'en' ? 'Hi! How can I help you today?' : '¡Hola! ¿En qué puedo ayudarte hoy?');
+          }
           setSourceUrl(initialInput);
         }
         const r = await fetch("/api/generate-prompt", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ input, language: lang }),
+          body: JSON.stringify({ input }),
         });
         const d = await r.json();
         if (d.prompt) { setPrompt(d.prompt); setStep("review"); }
@@ -225,7 +232,7 @@ export function CreateWizard({
       const res = await fetch("/api/chatbots", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: chatbotName, systemPrompt: prompt, githubRepo: selectedRepo, sourceUrl, ...colors }),
+        body: JSON.stringify({ name: chatbotName, systemPrompt: prompt, githubRepo: selectedRepo, sourceUrl, greeting: wizardGreeting, ...colors }),
       });
       const data = await res.json();
       if (data.chatbot) {
@@ -253,11 +260,11 @@ export function CreateWizard({
       const res = await fetch("/api/chatbots", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: chatbotName, systemPrompt: prompt, githubRepo: null, sourceUrl, ...colors }),
+        body: JSON.stringify({ name: chatbotName, systemPrompt: prompt, githubRepo: null, sourceUrl, greeting: wizardGreeting, ...colors }),
       });
       const data = await res.json();
       if (data.chatbot) {
-        const md = buildMarkdown(data.chatbot.id, chatbotName, widgetPrimary, widgetSecondary, widgetStyle, iconType, '¡Hola! ¿En qué puedo ayudarte hoy?');
+        const md = buildMarkdown(data.chatbot.id, chatbotName, widgetPrimary, widgetSecondary, widgetStyle, iconType, wizardGreeting);
         const filename = `chatbot-${chatbotName.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.md`;
         downloadFile(md, filename);
         router.push("/dashboard");

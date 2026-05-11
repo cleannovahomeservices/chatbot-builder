@@ -9,7 +9,7 @@ export async function POST(request: NextRequest) {
 
   const {
     name, systemPrompt, githubRepo,
-    primaryColor, secondaryColor, widgetStyle, iconType, sourceUrl,
+    primaryColor, secondaryColor, widgetStyle, iconType, sourceUrl, greeting,
   } = await request.json();
 
   if (!name || !systemPrompt) {
@@ -40,8 +40,9 @@ export async function POST(request: NextRequest) {
       status: 'active',
     };
 
+    const defaultGreeting = (greeting as string | undefined)?.trim() || '¡Hola! ¿En qué puedo ayudarte hoy?';
     // Try to include color columns (they may not exist yet if migration hasn't run)
-    let result = await db.from('chatbots').insert({ ...insertData, primary_color: colors.primary, secondary_color: colors.secondary, widget_style: colors.style, icon_type: colors.icon, source_url: sourceUrl || null }).select().single();
+    let result = await db.from('chatbots').insert({ ...insertData, primary_color: colors.primary, secondary_color: colors.secondary, widget_style: colors.style, icon_type: colors.icon, source_url: sourceUrl || null, greeting: defaultGreeting }).select().single();
 
     if (result.error?.message?.includes('primary_color') || result.error?.message?.includes('secondary_color') || result.error?.message?.includes('source_url') || result.error?.message?.includes('widget_style') || result.error?.message?.includes('icon_type')) {
       result = await db.from('chatbots').insert({ ...insertData, primary_color: colors.primary, secondary_color: colors.secondary, widget_style: colors.style, source_url: sourceUrl || null }).select().single();

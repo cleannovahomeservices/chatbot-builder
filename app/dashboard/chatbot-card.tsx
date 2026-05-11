@@ -96,7 +96,6 @@ export function ChatbotCard({ chatbot: initial }: { chatbot: Chatbot }) {
 
   const [editName, setEditName] = useState(chatbot.name);
   const [editGreeting, setEditGreeting] = useState(chatbot.greeting || '¡Hola! ¿En qué puedo ayudarte hoy?');
-  const [editLanguage, setEditLanguage] = useState(chatbot.chatbot_language || 'es');
   const [editPrimary, setEditPrimary] = useState(chatbot.primary_color || '#7c3aed');
   const [editSecondary, setEditSecondary] = useState(chatbot.secondary_color || '#4338ca');
   const [editStyle, setEditStyle] = useState(chatbot.widget_style || 'bubble');
@@ -136,7 +135,6 @@ export function ChatbotCard({ chatbot: initial }: { chatbot: Chatbot }) {
   function openPanel() {
     setEditName(chatbot.name);
     setEditGreeting(chatbot.greeting || '¡Hola! ¿En qué puedo ayudarte hoy?');
-    setEditLanguage(chatbot.chatbot_language || 'es');
     setEditPrimary(chatbot.primary_color || '#7c3aed');
     setEditSecondary(chatbot.secondary_color || '#4338ca');
     setEditStyle(chatbot.widget_style || 'bubble');
@@ -214,7 +212,6 @@ export function ChatbotCard({ chatbot: initial }: { chatbot: Chatbot }) {
           action: 'customize',
           name: editName.trim() || chatbot.name,
           greeting: editGreeting,
-          chatbotLanguage: editLanguage,
           primaryColor: editPrimary,
           secondaryColor: editSecondary,
           widgetStyle: editStyle,
@@ -378,23 +375,6 @@ export function ChatbotCard({ chatbot: initial }: { chatbot: Chatbot }) {
                   className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white placeholder-white/25 outline-none focus:border-violet-500/60 focus:ring-1 focus:ring-violet-500/30"
                 />
                 <p className="text-xs text-white/30 mt-1.5">Este mensaje aparece cuando el visitante abre el chat.</p>
-              </div>
-
-              {/* Language */}
-              <div>
-                <p className="text-sm font-medium text-white/80 mb-2">Idioma del chatbot</p>
-                <div className="flex gap-2">
-                  {(['es', 'en'] as const).map((lang) => (
-                    <button
-                      key={lang}
-                      onClick={() => setEditLanguage(lang)}
-                      className={`flex-1 py-2 rounded-xl border text-sm font-medium transition-all cursor-pointer ${editLanguage === lang ? 'bg-violet-600 border-violet-500 text-white' : 'bg-white/5 border-white/10 text-white/50 hover:text-white hover:border-white/20'}`}
-                    >
-                      {lang === 'es' ? '🇪🇸 Español' : '🇬🇧 English'}
-                    </button>
-                  ))}
-                </div>
-                <p className="text-xs text-white/30 mt-1.5">Afecta al idioma cuando regeneres el prompt desde la web.</p>
               </div>
 
               {/* Color pickers */}
