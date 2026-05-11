@@ -44,7 +44,44 @@ export async function GET(request: NextRequest) {
           response.cookies.delete('github_linking');
           return response;
         }
-        // If update failed (e.g. github_id already taken by another user), fall through to normal login
+
+        // Update failed (github_id already belongs to another user account).
+        // Merge: migrate the duplicate's chatbots to the current user, delete the duplicate, retry.
+        const { data: conflictUser } = await db
+          .from('users')
+          .select('id')
+          .eq('github_id', githubUser.id)
+          .maybeSingle();
+
+        if (conflictUser) {
+          try {
+            await db.from('chatbots').update({ user_id: existingUser.id }).eq('user_id', conflictUser.id);
+            await db.from('sessions').delete().eq('user_id', conflictUser.id);
+            await db.from('users').delete().eq('id', conflictUser.id);
+            const { error: retryError } = await db
+              .from('users')
+              .update({
+                github_id: githubUser.id,
+                github_username: githubUser.login,
+                github_email: githubUser.email,
+                github_avatar_url: githubUser.avatar_url,
+                github_access_token: accessToken,
+                updated_at: new Date().toISOString(),
+              })
+              .eq('id', existingUser.id);
+            if (!retryError) {
+              const redirectTo = request.cookies.get('post_auth_redirect')?.value || `${appUrl}/create`;
+              const mergeResponse = NextResponse.redirect(redirectTo);
+              mergeResponse.cookies.delete('github_oauth_state');
+              mergeResponse.cookies.delete('post_auth_redirect');
+              mergeResponse.cookies.delete('github_linking');
+              return mergeResponse;
+            }
+          } catch (mergeErr) {
+            console.error('[callback] account merge error:', mergeErr);
+          }
+        }
+        // Fall through to normal login only if merge also failed
       }
     }
 

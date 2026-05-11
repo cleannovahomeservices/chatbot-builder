@@ -114,6 +114,7 @@ export async function POST(request: NextRequest) {
   }
 
   const sessionToken = await createSession(user);
+  const cookieDomain = process.env.NODE_ENV === 'production' ? '.botluma.com' : undefined;
   const response = NextResponse.json({ ok: true });
   response.cookies.set(SESSION_COOKIE_NAME, sessionToken, {
     httpOnly: true,
@@ -121,6 +122,7 @@ export async function POST(request: NextRequest) {
     sameSite: 'lax',
     maxAge: SESSION_DURATION_SECONDS,
     path: '/',
+    domain: cookieDomain,
   });
 
   return response;
