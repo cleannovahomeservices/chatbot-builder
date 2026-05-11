@@ -32,13 +32,19 @@ export default async function DashboardPage() {
       <nav className="border-b border-white/10 px-4 sm:px-6 py-4 flex items-center justify-between">
         <span className="font-bold text-lg">Chatbot Builder</span>
         <div className="flex items-center gap-3 sm:gap-4">
-          <a
-            href="/api/auth/github/revoke"
-            className="hidden sm:block text-xs text-white/30 hover:text-white/60 transition"
-            title="Revocar y reconectar GitHub"
-          >
-            Reconectar GitHub
-          </a>
+          {user.github_access_token ? (
+            <span className="hidden sm:flex items-center gap-1.5 text-xs text-emerald-400/70">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block shrink-0" />
+              {user.github_username ? `@${user.github_username}` : 'GitHub conectado'}
+            </span>
+          ) : (
+            <a
+              href="/api/auth/github?next=/dashboard"
+              className="hidden sm:block text-xs text-violet-400 hover:text-violet-300 transition whitespace-nowrap"
+            >
+              Conectar GitHub →
+            </a>
+          )}
           {(user.github_avatar_url ?? user.google_avatar_url) && (
             <img
               src={user.github_avatar_url ?? user.google_avatar_url ?? undefined}
