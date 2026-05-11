@@ -278,13 +278,7 @@ export function ChatbotCard({ chatbot: initial }: { chatbot: Chatbot }) {
             {isDownloaded ? (
               <p className="text-sm text-white/30 mb-3 italic">Sin repositorio — integrado manualmente</p>
             ) : (
-              <>
-                <p className="text-sm text-white/40 mb-3">{chatbot.github_repo}</p>
-                <div className="flex items-center gap-2 bg-white/5 rounded-lg px-3 py-2">
-                  <span className="text-xs text-white/30 shrink-0">Webhook:</span>
-                  <span className="text-xs font-mono text-violet-300 truncate">{chatbot.n8n_webhook_url}</span>
-                </div>
-              </>
+              <p className="text-sm text-white/40 mb-3">{chatbot.github_repo}</p>
             )}
           </div>
 
