@@ -78,7 +78,7 @@ export async function injectWidget(
   token: string,
   owner: string,
   repo: string,
-  webhookUrl: string,
+  chatbotId: string,
   chatbotName: string,
   appUrl: string,
   primaryColor = '#7c3aed',
@@ -134,7 +134,7 @@ export async function injectWidget(
 
   const layout = files.find((f) => /^(src\/)?app\/layout\.[jt]sx?$/.test(f));
   if (layout) {
-    const result = await tryInjectIntoNextLayout(token, owner, repo, layout, webhookUrl, chatbotName, appUrl, primaryColor, secondaryColor, widgetStyle, iconType);
+    const result = await tryInjectIntoNextLayout(token, owner, repo, layout, chatbotId, chatbotName, appUrl, primaryColor, secondaryColor, widgetStyle, iconType);
     if (result.ok) injectResult = { injected: !result.prUrl, file: layout, prUrl: result.prUrl };
     else return { injected: false, reason: result.error };
   }
@@ -142,7 +142,7 @@ export async function injectWidget(
   if (!injectResult) {
     const document = files.find((f) => /^(src\/)?pages\/_document\.[jt]sx?$/.test(f));
     if (document) {
-      const result = await tryInjectIntoNextDocument(token, owner, repo, document, webhookUrl, chatbotName, appUrl, primaryColor, secondaryColor, widgetStyle, iconType);
+      const result = await tryInjectIntoNextDocument(token, owner, repo, document, chatbotId, chatbotName, appUrl, primaryColor, secondaryColor, widgetStyle, iconType);
       if (result.ok) injectResult = { injected: !result.prUrl, file: document, prUrl: result.prUrl };
       else return { injected: false, reason: result.error };
     }
@@ -161,7 +161,7 @@ export async function injectWidget(
       });
 
     for (const path of htmlFiles) {
-      const result = await tryInjectIntoMarkupFile(token, owner, repo, path, webhookUrl, chatbotName, appUrl, primaryColor, secondaryColor, widgetStyle, iconType);
+      const result = await tryInjectIntoMarkupFile(token, owner, repo, path, chatbotId, chatbotName, appUrl, primaryColor, secondaryColor, widgetStyle, iconType);
       // Inject into ALL html files; record first success as the primary result
       if (result.ok && !injectResult) injectResult = { injected: !result.prUrl, file: path, prUrl: result.prUrl };
     }
@@ -179,7 +179,7 @@ export async function injectWidget(
       .slice(0, 5);
 
     for (const path of phpFiles) {
-      const result = await tryInjectIntoMarkupFile(token, owner, repo, path, webhookUrl, chatbotName, appUrl, primaryColor, secondaryColor, widgetStyle, iconType);
+      const result = await tryInjectIntoMarkupFile(token, owner, repo, path, chatbotId, chatbotName, appUrl, primaryColor, secondaryColor, widgetStyle, iconType);
       if (result.ok) { injectResult = { injected: !result.prUrl, file: path, prUrl: result.prUrl }; break; }
     }
 
@@ -415,7 +415,7 @@ async function tryInjectIntoMarkupFile(
   owner: string,
   repo: string,
   filePath: string,
-  webhookUrl: string,
+  chatbotId: string,
   chatbotName: string,
   appUrl: string,
   primaryColor = '#7c3aed',
@@ -436,7 +436,7 @@ async function tryInjectIntoMarkupFile(
     .replace(/\n?[ \t]*<!-- Chatbot: [^\n]+ -->\n[ \t]*<script>window\.ChatbotConfig[^\n]+<\/script>\n[ \t]*<script src="[^\n]+\/widget\.js" async defer><\/script>/g, '')
     .replace(/\n?[ \t]*<!-- Chatbot: [^\n]+ -->\n[ \t]*<script>[^\n]+<\/script>\n[ \t]*<script src="[^\n]+\/widget\.js" async defer><\/script>/g, '');
 
-  const configJson = `{webhookUrl:"${webhookUrl}",name:"${chatbotName}",primaryColor:"${primaryColor}",secondaryColor:"${secondaryColor}",style:"${widgetStyle}",icon:"${iconType}"}`;
+  const configJson = `{chatbotId:"${chatbotId}",name:"${chatbotName}",primaryColor:"${primaryColor}",secondaryColor:"${secondaryColor}",style:"${widgetStyle}",icon:"${iconType}"}`;
   const snippet = `\n  <!-- Chatbot: ${chatbotName} -->\n  <script>window.ChatbotConfig=${configJson};</script>\n  <script src="${appUrl}/widget.js" async defer></script>`;
 
   if (content.includes('</body>')) {
@@ -454,7 +454,7 @@ async function tryInjectIntoNextLayout(
   owner: string,
   repo: string,
   filePath: string,
-  webhookUrl: string,
+  chatbotId: string,
   chatbotName: string,
   appUrl: string,
   primaryColor = '#7c3aed',
@@ -470,7 +470,6 @@ async function tryInjectIntoNextLayout(
   if (!file.content) return { ok: false, error: 'contenido vacío (archivo demasiado grande)' };
   const raw = Buffer.from(file.content, 'base64').toString('utf-8');
 
-  const safeUrl = webhookUrl.replace(/[`"\\]/g, '');
   const safeName = chatbotName.replace(/[`"\\]/g, '');
   const safePrimary = primaryColor.replace(/[`"\\]/g, '');
   const safeSecondary = secondaryColor.replace(/[`"\\]/g, '');
@@ -488,7 +487,7 @@ async function tryInjectIntoNextLayout(
 
   const safeStyle = widgetStyle.replace(/[`"\\]/g, '');
   const safeIcon = iconType.replace(/[`"\\]/g, '');
-  const configJson = `{webhookUrl:"${safeUrl}",name:"${safeName}",primaryColor:"${safePrimary}",secondaryColor:"${safeSecondary}",style:"${safeStyle}",icon:"${safeIcon}"}`;
+  const configJson = `{chatbotId:"${chatbotId}",name:"${safeName}",primaryColor:"${safePrimary}",secondaryColor:"${safeSecondary}",style:"${safeStyle}",icon:"${safeIcon}"}`;
   const snippet = `\n      {/* Chatbot: ${safeName} */}\n      <script dangerouslySetInnerHTML={{__html:\`window.ChatbotConfig=${configJson};\`}} />\n      <script src="${appUrl}/widget.js" async defer />\n      `;
   const updated = content.slice(0, idx) + snippet + content.slice(idx);
 
@@ -500,7 +499,7 @@ async function tryInjectIntoNextDocument(
   owner: string,
   repo: string,
   filePath: string,
-  webhookUrl: string,
+  chatbotId: string,
   chatbotName: string,
   appUrl: string,
   primaryColor = '#7c3aed',
@@ -516,13 +515,12 @@ async function tryInjectIntoNextDocument(
   if (!file.content) return { ok: false, error: 'contenido vacío (archivo demasiado grande)' };
   const content = Buffer.from(file.content, 'base64').toString('utf-8');
 
-  const safeUrl = webhookUrl.replace(/[`"\\]/g, '');
   const safeName = chatbotName.replace(/[`"\\]/g, '');
   const safePrimary = primaryColor.replace(/[`"\\]/g, '');
   const safeSecondary = secondaryColor.replace(/[`"\\]/g, '');
   const safeStyle = widgetStyle.replace(/[`"\\]/g, '');
   const safeIcon = iconType.replace(/[`"\\]/g, '');
-  const configJson = `{webhookUrl:"${safeUrl}",name:"${safeName}",primaryColor:"${safePrimary}",secondaryColor:"${safeSecondary}",style:"${safeStyle}",icon:"${safeIcon}"}`;
+  const configJson = `{chatbotId:"${chatbotId}",name:"${safeName}",primaryColor:"${safePrimary}",secondaryColor:"${safeSecondary}",style:"${safeStyle}",icon:"${safeIcon}"}`;
   const snippet = `\n        {/* Chatbot: ${safeName} */}\n        <script dangerouslySetInnerHTML={{__html:\`window.ChatbotConfig=${configJson};\`}} />\n        <script src="${appUrl}/widget.js" async defer />\n        `;
 
   let updated: string;

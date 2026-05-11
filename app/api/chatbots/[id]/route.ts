@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { deleteWorkflow, updateWorkflowSystemPrompt } from '@/lib/n8n';
 import { removeWidget, injectWidget } from '@/lib/github';
 
 export async function DELETE(
@@ -16,7 +15,7 @@ export async function DELETE(
 
   const { data: chatbot } = await db
     .from('chatbots')
-    .select('n8n_workflow_id, github_repo, name')
+    .select('github_repo, name')
     .eq('id', id)
     .eq('user_id', user.id)
     .single();
@@ -27,11 +26,6 @@ export async function DELETE(
   if (chatbot.github_repo && user.github_access_token) {
     const [owner, repo] = chatbot.github_repo.split('/');
     try { await removeWidget(user.github_access_token, owner, repo, chatbot.name); } catch {}
-  }
-
-  // Delete workflow from n8n
-  if (chatbot.n8n_workflow_id) {
-    try { await deleteWorkflow(chatbot.n8n_workflow_id); } catch {}
   }
 
   const { error } = await db
@@ -82,22 +76,13 @@ export async function PATCH(
     const icon = iconType || chatbot.icon_type || 'chat';
     const prompt = systemPrompt !== undefined ? systemPrompt : chatbot.system_prompt;
 
-    // Update n8n system prompt if changed
-    if (systemPrompt !== undefined && systemPrompt !== chatbot.system_prompt && chatbot.n8n_workflow_id) {
-      try {
-        await updateWorkflowSystemPrompt(chatbot.n8n_workflow_id, systemPrompt);
-      } catch (e) {
-        console.error('[customize] n8n update error:', e);
-      }
-    }
-
     // Re-inject widget with new colors
     if (chatbot.github_repo && user.github_access_token && chatbot.status === 'active') {
       const [owner, repo] = chatbot.github_repo.split('/');
       try {
         await injectWidget(
           user.github_access_token, owner, repo,
-          chatbot.n8n_webhook_url, chatbot.name, appUrl,
+          chatbot.id, chatbot.name, appUrl,
           primary, secondary, style, icon,
         );
       } catch (e) {
@@ -158,7 +143,7 @@ export async function PATCH(
       try {
         const result = await injectWidget(
           user.github_access_token, owner, repo,
-          chatbot.n8n_webhook_url, chatbot.name, appUrl,
+          chatbot.id, chatbot.name, appUrl,
           chatbot.primary_color || '#7c3aed',
           chatbot.secondary_color || '#4338ca',
           chatbot.widget_style || 'bubble',
@@ -189,7 +174,7 @@ export async function PATCH(
 
   const { data: chatbot } = await db
     .from('chatbots')
-    .select('n8n_workflow_id, github_repo, name, n8n_webhook_url, primary_color, secondary_color, widget_style, icon_type')
+    .select('github_repo, name, primary_color, secondary_color, widget_style, icon_type')
     .eq('id', id)
     .eq('user_id', user.id)
     .single();
@@ -204,7 +189,7 @@ export async function PATCH(
       } else {
         await injectWidget(
           user.github_access_token, owner, repo,
-          chatbot.n8n_webhook_url, chatbot.name, appUrl,
+          id, chatbot.name, appUrl,
           chatbot.primary_color || '#7c3aed',
           chatbot.secondary_color || '#4338ca',
           chatbot.widget_style || 'bubble',

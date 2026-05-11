@@ -4,8 +4,9 @@
   window.__chatbotWidgetLoaded = true;
 
   var config = window.ChatbotConfig || {};
+  var chatbotId = config.chatbotId;
   var webhookUrl = config.webhookUrl;
-  if (!webhookUrl) return;
+  if (!chatbotId && !webhookUrl) return;
 
   var botName = config.name || 'Asistente';
   var wStyle = config.style || 'bubble';
@@ -317,7 +318,7 @@
       var r = await fetch('https://chatbot-builder-iota.vercel.app/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ webhookUrl: webhookUrl, message: text, sessionId: sessionId }),
+        body: JSON.stringify(chatbotId ? { chatbotId: chatbotId, message: text, sessionId: sessionId } : { webhookUrl: webhookUrl, message: text, sessionId: sessionId }),
       });
       var d = await r.json();
       t.className = 'cb-msg cb-bot';
