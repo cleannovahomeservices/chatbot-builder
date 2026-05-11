@@ -12,7 +12,7 @@ export async function POST(request: NextRequest) {
     primaryColor, secondaryColor, widgetStyle, iconType, sourceUrl,
   } = await request.json();
 
-  if (!name || !systemPrompt || !githubRepo) {
+  if (!name || !systemPrompt) {
     return NextResponse.json({ error: 'Faltan campos requeridos' }, { status: 400 });
   }
 

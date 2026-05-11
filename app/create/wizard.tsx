@@ -3,12 +3,61 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 
-type Step = "input" | "generating" | "review" | "repo" | "creating" | "done";
+type Step = "input" | "generating" | "review" | "deploy" | "repo" | "creating" | "done";
+const STEP_DOTS: Step[] = ["input", "generating", "review", "deploy", "creating", "done"];
 
 interface Repo {
   full_name: string;
   name: string;
   private: boolean;
+}
+
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://chatbot-builder-iota.vercel.app';
+
+function buildSnippet(chatbotId: string, name: string, primary: string, secondary: string, style: string, icon: string) {
+  const safe = (s: string) => s.replace(/[`"\\]/g, '');
+  return `<!-- Chatbot: ${safe(name)} -->\n<script>window.ChatbotConfig={chatbotId:"${chatbotId}",name:"${safe(name)}",primaryColor:"${primary}",secondaryColor:"${secondary}",style:"${style}",icon:"${icon}"};</script>\n<script src="${APP_URL}/widget.js" async defer></script>`;
+}
+
+function buildMarkdown(chatbotId: string, name: string, primary: string, secondary: string, style: string, icon: string) {
+  const snippet = buildSnippet(chatbotId, name, primary, secondary, style, icon);
+  return `# Chatbot: ${name}
+
+Eres un asistente de IA. Tu tarea es integrar el siguiente widget de chatbot en este proyecto web. No necesitas hacer nada más que añadir el código de abajo en el lugar indicado.
+
+## Instrucciones de integración
+
+Añade las siguientes líneas de código justo antes del cierre \`</body>\` del archivo HTML principal:
+
+- **Next.js** → en \`app/layout.tsx\` antes de \`{children}\`, o en \`pages/_document.tsx\` dentro de \`<Head>\`
+- **Astro / SvelteKit / Nuxt** → en el layout raíz
+- **HTML estático** → antes de \`</body>\` en todos los archivos HTML
+
+## Código
+
+\`\`\`html
+${snippet}
+\`\`\`
+
+## Notas
+
+- El chatbot funciona automáticamente tras la integración. No requiere ninguna configuración adicional.
+- Si el proyecto tiene Content Security Policy (CSP): añade \`${new URL(APP_URL).hostname}\` a \`script-src\` y \`connect-src\`.
+- Los cambios de contenido son inmediatos y no requieren re-integrar este archivo.
+- Para actualizar colores o estilo: descarga un nuevo archivo desde ${APP_URL}/dashboard.
+`;
+}
+
+function downloadFile(content: string, filename: string) {
+  const blob = new Blob([content], { type: 'text/markdown' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 export function CreateWizard({
@@ -31,7 +80,7 @@ export function CreateWizard({
   const [chatbotName, setChatbotName] = useState("");
   const [error, setError] = useState("");
   const [createdChatbot, setCreatedChatbot] = useState<{
-    n8n_webhook_url: string;
+    id: string;
     widget_injected: boolean;
   } | null>(null);
   const [injectFile, setInjectFile] = useState<string | undefined>();
@@ -43,6 +92,7 @@ export function CreateWizard({
   const [widgetStyle, setWidgetStyle] = useState('bubble');
   const [iconType, setIconType] = useState('chat');
   const [sourceUrl, setSourceUrl] = useState<string>("");
+  const [deployMethod, setDeployMethod] = useState<'github' | 'download' | null>(null);
 
   async function startGenerating() {
     if (!userInput.trim()) return;
@@ -89,6 +139,7 @@ export function CreateWizard({
       if (s.userInput) setUserInput(s.userInput);
       if (s.inputMode) setInputMode(s.inputMode);
       if (s.chatbotName) setChatbotName(s.chatbotName);
+      setDeployMethod('github');
       setStep('repo');
       setError('');
       fetch('/api/github/repos').then(async (r) => {
@@ -139,6 +190,7 @@ export function CreateWizard({
   }, []);
 
   async function loadRepos() {
+    setDeployMethod('github');
     setStep("repo");
     setError("");
     try {
@@ -179,17 +231,45 @@ export function CreateWizard({
     }
   }
 
+  async function downloadChatbot() {
+    if (!chatbotName.trim()) return;
+    setDeployMethod('download');
+    setStep("creating");
+    try {
+      const colors = { primaryColor: widgetPrimary, secondaryColor: widgetSecondary, widgetStyle, iconType };
+      const res = await fetch("/api/chatbots", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: chatbotName, systemPrompt: prompt, githubRepo: null, sourceUrl, ...colors }),
+      });
+      const data = await res.json();
+      if (data.chatbot) {
+        const md = buildMarkdown(data.chatbot.id, chatbotName, widgetPrimary, widgetSecondary, widgetStyle, iconType);
+        const filename = `chatbot-${chatbotName.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.md`;
+        downloadFile(md, filename);
+        router.push("/dashboard");
+      } else {
+        setError(data.error ?? "Error desconocido al crear el chatbot.");
+        setStep("deploy");
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Error de conexión.");
+      setStep("deploy");
+    }
+  }
+
   const canCreate = chatbotName.trim() && !!selectedRepo;
+  const canDeploy = !!chatbotName.trim();
 
   return (
     <main className="min-h-screen bg-[#0A0A0A] text-white flex flex-col items-center justify-center px-4 py-16">
       <div className="w-full max-w-2xl">
-        {/* Steps dots */}
+        {/* Step dots */}
         <div className="flex items-center gap-2 mb-10 justify-center">
-          {(["input", "generating", "review", "repo", "creating", "done"] as Step[]).map((s, i) => (
+          {STEP_DOTS.map((s, i) => (
             <div key={s} className="flex items-center gap-2">
-              <div className={`h-2 w-2 rounded-full transition-all ${step === s ? "bg-violet-400 scale-125" : i < (["input","generating","review","repo","creating","done"] as Step[]).indexOf(step) ? "bg-violet-700" : "bg-white/20"}`} />
-              {i < 5 && <div className="h-px w-6 bg-white/10" />}
+              <div className={`h-2 w-2 rounded-full transition-all ${step === s ? "bg-violet-400 scale-125" : i < STEP_DOTS.indexOf(step) ? "bg-violet-700" : "bg-white/20"}`} />
+              {i < STEP_DOTS.length - 1 && <div className="h-px w-6 bg-white/10" />}
             </div>
           ))}
         </div>
@@ -336,22 +416,22 @@ export function CreateWizard({
               </div>
             </div>
 
-            <button onClick={loadRepos}
+            <button onClick={() => setStep("deploy")}
               className="mt-6 w-full rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 py-4 font-semibold text-white hover:from-violet-500 hover:to-indigo-500 transition active:scale-[0.99] cursor-pointer"
             >
-              Continuar → Conectar tu web
+              Continuar → Instalar en tu web
             </button>
           </div>
         )}
 
-        {/* STEP: Select repo */}
-        {step === "repo" && (
+        {/* STEP: Deploy method */}
+        {step === "deploy" && (
           <div>
-            <h2 className="text-2xl font-bold mb-2">¿Dónde está tu web?</h2>
-            <p className="text-white/50 mb-5">Inyectaremos el widget automáticamente en tu repositorio de GitHub.</p>
+            <h2 className="text-2xl font-bold mb-2">¿Cómo quieres instalarlo?</h2>
+            <p className="text-white/50 mb-6">Tu chatbot está listo. Elige cómo integrarlo en tu web.</p>
 
             {/* Chatbot name */}
-            <div className="mb-4">
+            <div className="mb-6">
               <label className="block text-sm font-medium text-white/70 mb-2">Nombre del chatbot</label>
               <input
                 type="text"
@@ -362,7 +442,63 @@ export function CreateWizard({
               />
             </div>
 
-            {/* GitHub repos */}
+            <div className="flex flex-col gap-3">
+              {/* GitHub option */}
+              <button
+                onClick={loadRepos}
+                disabled={!canDeploy}
+                className="group w-full rounded-xl border border-white/10 bg-white/[0.03] hover:border-violet-500/40 hover:bg-violet-500/5 p-5 text-left transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+              >
+                <div className="flex items-center gap-4">
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white/5 group-hover:bg-violet-500/10 transition-colors">
+                    <svg className="h-5 w-5 text-white/70" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
+                    </svg>
+                  </div>
+                  <div className="flex-1">
+                    <p className="font-semibold text-white">Conectar con GitHub</p>
+                    <p className="text-sm text-white/40 mt-0.5">Inyectamos el widget automáticamente en tu repositorio.</p>
+                  </div>
+                  <svg className="h-4 w-4 text-white/30 group-hover:text-white/60 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                  </svg>
+                </div>
+              </button>
+
+              {/* Download option */}
+              <button
+                onClick={downloadChatbot}
+                disabled={!canDeploy}
+                className="group w-full rounded-xl border border-violet-500/30 bg-violet-500/5 hover:border-violet-500/60 hover:bg-violet-500/10 p-5 text-left transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+              >
+                <div className="flex items-center gap-4">
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-violet-500/10 group-hover:bg-violet-500/20 transition-colors">
+                    <svg className="h-5 w-5 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                  </div>
+                  <div className="flex-1">
+                    <p className="font-semibold text-white">Descargar chatbot</p>
+                    <p className="text-sm text-white/40 mt-0.5">Descarga un archivo e implémentalo con tu IA favorita en menos de 2 minutos.</p>
+                    <p className="text-xs text-violet-400/70 mt-1">Compatible con Cursor, Replit, Lovable, Claude Code…</p>
+                  </div>
+                  <svg className="h-4 w-4 text-violet-400/50 group-hover:text-violet-400 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                  </svg>
+                </div>
+              </button>
+            </div>
+
+            {error && <p className="mt-4 text-sm text-red-400">{error}</p>}
+          </div>
+        )}
+
+        {/* STEP: Select repo (GitHub only) */}
+        {step === "repo" && (
+          <div>
+            <h2 className="text-2xl font-bold mb-2">Selecciona tu repositorio</h2>
+            <p className="text-white/50 mb-5">Inyectaremos el widget automáticamente en tu código.</p>
+
             {githubConnected === false ? (
               <div className="rounded-xl border border-white/10 bg-white/[0.03] p-8 text-center">
                 <svg className="h-8 w-8 mx-auto mb-3 text-white/30" viewBox="0 0 24 24" fill="currentColor">
@@ -424,7 +560,7 @@ export function CreateWizard({
               disabled={!canCreate}
               className="mt-6 w-full rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 py-4 font-semibold text-white hover:from-violet-500 hover:to-indigo-500 transition active:scale-[0.99] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
             >
-              Crear chatbot →
+              Crear e inyectar chatbot →
             </button>
           </div>
         )}
@@ -435,18 +571,21 @@ export function CreateWizard({
             <div className="inline-flex h-14 w-14 items-center justify-center rounded-full bg-violet-500/20 mb-6">
               <div className="h-6 w-6 rounded-full border-2 border-violet-400 border-t-transparent animate-spin" />
             </div>
-            <h2 className="text-2xl font-bold mb-2">Creando tu chatbot</h2>
-            <p className="text-white/50">Configurando n8n e inyectando el widget…</p>
+            <h2 className="text-2xl font-bold mb-2">
+              {deployMethod === 'download' ? 'Creando tu chatbot…' : 'Inyectando el widget…'}
+            </h2>
+            <p className="text-white/50">
+              {deployMethod === 'download' ? 'Preparando el archivo de integración…' : 'Configurando e inyectando el widget en tu repositorio…'}
+            </p>
           </div>
         )}
 
-        {/* STEP: Done */}
+        {/* STEP: Done (GitHub path) */}
         {step === "done" && (
           <div className="text-center">
             <div className="inline-flex h-14 w-14 items-center justify-center rounded-full bg-emerald-500/20 mb-6 text-2xl">✓</div>
             <h2 className="text-2xl font-bold mb-2">¡Chatbot creado!</h2>
 
-            {/* Widget injected directly */}
             {createdChatbot?.widget_injected && (
               <p className="text-white/50 mb-6">
                 Widget inyectado en{" "}
@@ -455,7 +594,6 @@ export function CreateWizard({
               </p>
             )}
 
-            {/* PR created */}
             {!createdChatbot?.widget_injected && injectPrUrl && (
               <div className="rounded-xl border border-violet-500/30 bg-violet-500/5 p-5 text-left mb-6">
                 <p className="text-sm font-semibold text-violet-300 mb-1">Un paso más: acepta el PR en GitHub</p>
@@ -470,20 +608,8 @@ export function CreateWizard({
               </div>
             )}
 
-            {/* Could not inject */}
-            {!createdChatbot?.widget_injected && !injectPrUrl && (
-              <>
-                <p className="text-white/50 mb-4">
-                  Tu chatbot está activo. Añade este snippet antes del{" "}
-                  <code className="bg-white/10 px-1 rounded">&lt;/body&gt;</code> de tu web:
-                </p>
-                <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4 text-left mb-4">
-                  <pre className="text-xs text-violet-300 whitespace-pre-wrap break-all">{`<script>window.ChatbotConfig={webhookUrl:"${createdChatbot?.n8n_webhook_url}"};</script>\n<script src="https://chatbot-builder-iota.vercel.app/widget.js" async defer></script>`}</pre>
-                </div>
-                {injectReason && (
-                  <p className="text-xs text-white/30 mb-4">Motivo: {injectReason}</p>
-                )}
-              </>
+            {!createdChatbot?.widget_injected && !injectPrUrl && injectReason && (
+              <p className="text-xs text-white/30 mb-6">Motivo: {injectReason}</p>
             )}
 
             <button onClick={() => router.push("/dashboard")}
