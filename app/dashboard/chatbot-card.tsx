@@ -31,12 +31,62 @@ const ICON_OPTIONS = [
 
 const WIDGET_STYLES = ['bubble','minimal','rounded','dark','neon','corporate','soft','floating','compact','retro'] as const;
 
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://chatbot-builder-iota.vercel.app';
+
+function buildSnippet(chatbotId: string, name: string, primary: string, secondary: string, style: string, icon: string) {
+  const safe = (s: string) => s.replace(/[`"\\]/g, '');
+  return `<!-- Chatbot: ${safe(name)} -->\n<script>window.ChatbotConfig={chatbotId:"${chatbotId}",name:"${safe(name)}",primaryColor:"${primary}",secondaryColor:"${secondary}",style:"${style}",icon:"${icon}"};</script>\n<script src="${APP_URL}/widget.js" async defer></script>`;
+}
+
+function buildMarkdown(chatbotId: string, name: string, primary: string, secondary: string, style: string, icon: string) {
+  const snippet = buildSnippet(chatbotId, name, primary, secondary, style, icon);
+  const host = new URL(APP_URL).hostname;
+  return `# Chatbot: ${name}
+
+Eres un asistente de IA. Tu tarea es integrar el siguiente widget de chatbot en este proyecto web. No necesitas hacer nada más que añadir el código de abajo en el lugar indicado.
+
+## Instrucciones de integración
+
+Añade las siguientes líneas de código justo antes del cierre \`</body>\` del archivo HTML principal:
+
+- **Next.js** → en \`app/layout.tsx\` antes de \`{children}\`, o en \`pages/_document.tsx\` dentro de \`<Head>\`
+- **Astro / SvelteKit / Nuxt** → en el layout raíz
+- **HTML estático** → antes de \`</body>\` en todos los archivos HTML
+
+## Código
+
+\`\`\`html
+${snippet}
+\`\`\`
+
+## Notas
+
+- El chatbot funciona automáticamente tras la integración. No requiere ninguna configuración adicional.
+- Si el proyecto tiene Content Security Policy (CSP): añade \`${host}\` a \`script-src\` y \`connect-src\`.
+- Los cambios de contenido son inmediatos y no requieren re-integrar este archivo.
+- Para actualizar colores o estilo: descarga un nuevo archivo desde ${APP_URL}/dashboard.
+`;
+}
+
+function downloadFile(content: string, filename: string) {
+  const blob = new Blob([content], { type: 'text/markdown' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 export function ChatbotCard({ chatbot: initial }: { chatbot: Chatbot }) {
   const [chatbot, setChatbot] = useState(initial);
   const [loading, setLoading] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [redownloading, setRedownloading] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [reinjectStatus, setReinjectStatus] = useState<'idle' | 'loading' | 'ok' | 'error'>('idle');
@@ -49,6 +99,7 @@ export function ChatbotCard({ chatbot: initial }: { chatbot: Chatbot }) {
   const [editPrompt, setEditPrompt] = useState(chatbot.system_prompt || '');
 
   const router = useRouter();
+  const isDownloaded = !chatbot.github_repo;
 
   async function deleteBot() {
     if (!confirm(`¿Borrar el chatbot "${chatbot.name}"? Esta acción no se puede deshacer.`)) return;
@@ -101,7 +152,6 @@ export function ChatbotCard({ chatbot: initial }: { chatbot: Chatbot }) {
       const scrapeData = await scrapeRes.json();
       if (!scrapeData.text) { setSaveError('No se pudo scrapear la web.'); return; }
 
-      // Update colors + style if Claude Vision returned them
       if (scrapeData.primaryColor) setEditPrimary(scrapeData.primaryColor);
       if (scrapeData.secondaryColor) setEditSecondary(scrapeData.secondaryColor);
       if (scrapeData.widgetStyle) setEditStyle(scrapeData.widgetStyle);
@@ -173,6 +223,26 @@ export function ChatbotCard({ chatbot: initial }: { chatbot: Chatbot }) {
     }
   }
 
+  function redownloadCard() {
+    const md = buildMarkdown(
+      chatbot.id, chatbot.name,
+      chatbot.primary_color || '#7c3aed',
+      chatbot.secondary_color || '#4338ca',
+      chatbot.widget_style || 'bubble',
+      chatbot.icon_type || 'chat',
+    );
+    const filename = `chatbot-${chatbot.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.md`;
+    downloadFile(md, filename);
+  }
+
+  function redownloadPanel() {
+    setRedownloading(true);
+    const md = buildMarkdown(chatbot.id, chatbot.name, editPrimary, editSecondary, editStyle, editIcon);
+    const filename = `chatbot-${chatbot.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.md`;
+    downloadFile(md, filename);
+    setRedownloading(false);
+  }
+
   return (
     <>
       <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-6">
@@ -184,10 +254,16 @@ export function ChatbotCard({ chatbot: initial }: { chatbot: Chatbot }) {
                 style={{ background: `linear-gradient(135deg, ${chatbot.primary_color || '#7c3aed'}, ${chatbot.secondary_color || '#4338ca'})` }}
               />
               <h2 className="font-semibold text-lg truncate">{chatbot.name}</h2>
-              <span className={`text-xs px-2 py-0.5 rounded-full border ${chatbot.status === 'active' ? 'border-emerald-500/30 text-emerald-400 bg-emerald-500/10' : 'border-white/10 text-white/40 bg-white/5'}`}>
-                {chatbot.status === 'active' ? 'Activo' : 'Inactivo'}
-              </span>
-              {chatbot.widget_injected && (
+              {isDownloaded ? (
+                <span className="text-xs px-2 py-0.5 rounded-full border border-violet-500/30 text-violet-400 bg-violet-500/10">
+                  Descargado
+                </span>
+              ) : (
+                <span className={`text-xs px-2 py-0.5 rounded-full border ${chatbot.status === 'active' ? 'border-emerald-500/30 text-emerald-400 bg-emerald-500/10' : 'border-white/10 text-white/40 bg-white/5'}`}>
+                  {chatbot.status === 'active' ? 'Activo' : 'Inactivo'}
+                </span>
+              )}
+              {!isDownloaded && chatbot.widget_injected && (
                 <span className="text-xs px-2 py-0.5 rounded-full border border-violet-500/30 text-violet-400 bg-violet-500/10">
                   Widget inyectado
                 </span>
@@ -198,11 +274,18 @@ export function ChatbotCard({ chatbot: initial }: { chatbot: Chatbot }) {
                 </span>
               )}
             </div>
-            <p className="text-sm text-white/40 mb-3">{chatbot.github_repo}</p>
-            <div className="flex items-center gap-2 bg-white/5 rounded-lg px-3 py-2">
-              <span className="text-xs text-white/30 shrink-0">Webhook:</span>
-              <span className="text-xs font-mono text-violet-300 truncate">{chatbot.n8n_webhook_url}</span>
-            </div>
+
+            {isDownloaded ? (
+              <p className="text-sm text-white/30 mb-3 italic">Sin repositorio — integrado manualmente</p>
+            ) : (
+              <>
+                <p className="text-sm text-white/40 mb-3">{chatbot.github_repo}</p>
+                <div className="flex items-center gap-2 bg-white/5 rounded-lg px-3 py-2">
+                  <span className="text-xs text-white/30 shrink-0">Webhook:</span>
+                  <span className="text-xs font-mono text-violet-300 truncate">{chatbot.n8n_webhook_url}</span>
+                </div>
+              </>
+            )}
           </div>
 
           <div className="flex flex-col items-end gap-2 shrink-0">
@@ -216,13 +299,23 @@ export function ChatbotCard({ chatbot: initial }: { chatbot: Chatbot }) {
             >
               Personalizar
             </button>
-            <button
-              onClick={toggleStatus}
-              disabled={loading || deleting}
-              className={`text-xs px-3 py-1.5 rounded-lg border transition-colors cursor-pointer disabled:opacity-40 ${chatbot.status === 'active' ? 'border-red-500/30 text-red-400 hover:bg-red-500/10' : 'border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10'}`}
-            >
-              {loading ? '…' : chatbot.status === 'active' ? 'Desactivar' : 'Activar'}
-            </button>
+            {isDownloaded ? (
+              <button
+                onClick={redownloadCard}
+                disabled={loading || deleting}
+                className="text-xs px-3 py-1.5 rounded-lg border border-violet-500/30 text-violet-400 hover:bg-violet-500/10 transition-colors cursor-pointer disabled:opacity-40"
+              >
+                Re-descargar
+              </button>
+            ) : (
+              <button
+                onClick={toggleStatus}
+                disabled={loading || deleting}
+                className={`text-xs px-3 py-1.5 rounded-lg border transition-colors cursor-pointer disabled:opacity-40 ${chatbot.status === 'active' ? 'border-red-500/30 text-red-400 hover:bg-red-500/10' : 'border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10'}`}
+              >
+                {loading ? '…' : chatbot.status === 'active' ? 'Desactivar' : 'Activar'}
+              </button>
+            )}
             <button
               onClick={deleteBot}
               disabled={loading || deleting}
@@ -340,24 +433,66 @@ export function ChatbotCard({ chatbot: initial }: { chatbot: Chatbot }) {
                 />
               </div>
 
+              {/* Reinject status (GitHub chatbots only) */}
+              {!isDownloaded && reinjectStatus !== 'idle' && (
+                <p className={`text-sm ${reinjectStatus === 'ok' ? 'text-emerald-400' : reinjectStatus === 'error' ? 'text-red-400' : 'text-white/40'}`}>
+                  {reinjectStatus === 'loading' ? 'Reconectando widget…' : reinjectMessage}
+                </p>
+              )}
+
               {saveError && <p className="text-sm text-red-400">{saveError}</p>}
             </div>
 
-            <div className="px-6 py-4 border-t border-white/10 flex gap-3">
-              <button
-                onClick={() => setPanelOpen(false)}
-                className="flex-1 py-2.5 rounded-xl border border-white/10 text-sm text-white/50 hover:text-white hover:border-white/20 transition cursor-pointer"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={saveCustomization}
-                disabled={saving}
-                className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 text-sm font-semibold text-white hover:from-violet-500 hover:to-indigo-500 transition disabled:opacity-50 cursor-pointer"
-              >
-                {saving ? 'Guardando…' : 'Guardar y re-inyectar'}
-              </button>
-            </div>
+            {/* Panel footer — different for downloaded vs GitHub */}
+            {isDownloaded ? (
+              <div className="px-6 py-4 border-t border-white/10 flex gap-3">
+                <button
+                  onClick={() => setPanelOpen(false)}
+                  className="flex-1 py-2.5 rounded-xl border border-white/10 text-sm text-white/50 hover:text-white hover:border-white/20 transition cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={saveCustomization}
+                  disabled={saving}
+                  className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 text-sm font-semibold text-white hover:from-violet-500 hover:to-indigo-500 transition disabled:opacity-50 cursor-pointer"
+                >
+                  {saving ? 'Guardando…' : 'Guardar'}
+                </button>
+                <button
+                  onClick={redownloadPanel}
+                  disabled={redownloading}
+                  className="flex-1 py-2.5 rounded-xl border border-violet-500/40 text-sm font-semibold text-violet-300 hover:bg-violet-500/10 transition disabled:opacity-50 cursor-pointer"
+                >
+                  {redownloading ? 'Descargando…' : 'Re-descargar'}
+                </button>
+              </div>
+            ) : (
+              <div className="px-6 py-4 border-t border-white/10 space-y-3">
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setPanelOpen(false)}
+                    className="flex-1 py-2.5 rounded-xl border border-white/10 text-sm text-white/50 hover:text-white hover:border-white/20 transition cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={saveCustomization}
+                    disabled={saving}
+                    className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 text-sm font-semibold text-white hover:from-violet-500 hover:to-indigo-500 transition disabled:opacity-50 cursor-pointer"
+                  >
+                    {saving ? 'Guardando…' : 'Guardar y re-inyectar'}
+                  </button>
+                </div>
+                <button
+                  onClick={reinjectWidget}
+                  disabled={reinjectStatus === 'loading'}
+                  className="w-full py-2 rounded-xl border border-white/10 text-xs text-white/40 hover:text-white/70 hover:border-white/20 transition cursor-pointer disabled:opacity-40"
+                >
+                  {reinjectStatus === 'loading' ? 'Reconectando…' : 'Forzar re-inyección del widget'}
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
