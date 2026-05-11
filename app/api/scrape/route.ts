@@ -634,6 +634,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No se pudo acceder a la URL' }, { status: 422 });
     }
 
+    // Quality gate: reject content that's clearly not real business info
+    // Count real words (alpha sequences ≥ 3 chars) — ASCII art and 404 pages have almost none
+    const realWords = (textContent.match(/[a-záéíóúüñA-ZÁÉÍÓÚÜÑA-Za-z]{3,}/g) ?? []).length;
+    const has404 = (textContent.match(/\b(404|not found|page not found|error 404)\b/gi) ?? []).length;
+    console.log(`[scrape] quality check: realWords=${realWords} has404=${has404}`);
+    if (realWords < 60 || (has404 > 5 && realWords < 200)) {
+      return NextResponse.json({ error: 'No se pudo extraer contenido útil de esta web. La página puede requerir inicio de sesión, estar bloqueando scrapers, o el contenido es principalmente visual.' }, { status: 422 });
+    }
+
     return NextResponse.json({ text: textContent, primaryColor, secondaryColor, widgetStyle });
   } catch {
     return NextResponse.json({ error: 'No se pudo acceder a la URL' }, { status: 422 });
