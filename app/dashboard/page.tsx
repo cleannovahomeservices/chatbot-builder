@@ -29,22 +29,15 @@ export default async function DashboardPage() {
 
   return (
     <main className="min-h-screen bg-[#0A0A0A] text-white">
-      <nav className="border-b border-white/10 px-6 py-4 flex items-center justify-between">
+      <nav className="border-b border-white/10 px-4 sm:px-6 py-4 flex items-center justify-between">
         <span className="font-bold text-lg">Chatbot Builder</span>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3 sm:gap-4">
           <a
             href="/api/auth/github/revoke"
-            className="text-xs text-white/30 hover:text-white/60 transition"
+            className="hidden sm:block text-xs text-white/30 hover:text-white/60 transition"
             title="Revocar y reconectar GitHub"
           >
             Reconectar GitHub
-          </a>
-          <a
-            href="/api/auth/vercel"
-            className="text-xs text-white/30 hover:text-white/60 transition"
-            title="Conectar cuenta de Vercel"
-          >
-            {user.vercel_access_token ? 'Vercel ✓' : 'Conectar Vercel'}
           </a>
           {(user.github_avatar_url ?? user.google_avatar_url) && (
             <img
@@ -61,17 +54,17 @@ export default async function DashboardPage() {
         </div>
       </nav>
 
-      <div className="max-w-4xl mx-auto px-6 py-12">
-        <div className="flex items-center justify-between mb-8">
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-8">
           <div>
-            <h1 className="text-3xl font-bold">Mis chatbots</h1>
+            <h1 className="text-2xl sm:text-3xl font-bold">Mis chatbots</h1>
             <p className="text-white/50 mt-1">
               Hola, {user.github_username ?? user.google_name ?? user.email_address?.split("@")[0]}
             </p>
           </div>
           <Link
             href="/"
-            className="rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 px-5 py-2.5 text-sm font-semibold text-white hover:from-violet-500 hover:to-indigo-500 transition"
+            className="rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 px-5 py-2.5 text-sm font-semibold text-white hover:from-violet-500 hover:to-indigo-500 transition text-center sm:text-left"
           >
             + Nuevo chatbot
           </Link>
