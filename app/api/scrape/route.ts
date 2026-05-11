@@ -181,12 +181,15 @@ async function fetchSubpagesWithJina(html: string, jinaText: string, baseUrl: st
 }
 
 // ─── JS bundle extraction: finds wa.me/phone in compiled Vite/React bundles ──
-// CSS pseudo-element phones are invisible to DOM scrapers but present in the JS
+// Also handles Vite dev mode (serves .tsx source files directly, not compiled bundles)
 async function extractFromJsBundle(url: string, html: string): Promise<string> {
   const found: string[] = [];
+  const addresses: string[] = [];
   try {
-    // Find JS bundle URLs from the HTML shell
+    // Collect JS/TS source URLs from the HTML
     const jsUrls: string[] = [];
+
+    // Compiled bundles: assets/index-[hash].js (production builds)
     for (const m of html.matchAll(/src="([^"]+\.js[^"]*)"/gi)) {
       try {
         const u = new URL(m[1], url).href;
@@ -194,7 +197,16 @@ async function extractFromJsBundle(url: string, html: string): Promise<string> {
       } catch { /* skip */ }
     }
 
-    for (const jsUrl of jsUrls.slice(0, 2)) {
+    // Vite dev mode: serves .tsx/.jsx source files directly (Replit dev, local dev)
+    const isViteDev = html.includes('/@vite/client') || html.includes('/src/main.');
+    if (isViteDev) {
+      const base = new URL(url).origin;
+      const devPaths = ['/src/App.tsx', '/src/App.jsx', '/src/app.tsx', '/src/pages/Index.tsx', '/src/pages/index.tsx'];
+      for (const p of devPaths) jsUrls.push(`${base}${p}`);
+      console.log('[jsbundle] Vite dev mode detected, will try source files');
+    }
+
+    for (const jsUrl of jsUrls.slice(0, 4)) {
       try {
         const res = await fetch(jsUrl, { headers: { 'User-Agent': BOT_UA }, signal: AbortSignal.timeout(8_000) });
         if (!res.ok) continue;
@@ -226,14 +238,24 @@ async function extractFromJsBundle(url: string, html: string): Promise<string> {
             console.log('[jsbundle] phone found:', num);
           }
         }
+        // Google Maps links → extract embedded address
+        for (const m of bundle.matchAll(/maps\.google\.com[^"']*[?&]q=([^"'&\s]{5,})/g)) {
+          try {
+            const addr = decodeURIComponent(m[1].replace(/\+/g, ' ')).trim();
+            if (addr.length > 5 && !addresses.some(a => a.includes(addr.slice(0, 10)))) {
+              addresses.push(`Dirección: ${addr}`);
+              console.log('[jsbundle] maps address found:', addr);
+            }
+          } catch { /* skip */ }
+        }
 
-        if (found.length > 0) break; // found what we need
+        if (found.length > 0 && addresses.length > 0) break;
       } catch { /* skip */ }
     }
   } catch (e) {
     console.error('[jsbundle] error:', e);
   }
-  return found.join('\n');
+  return [...found, ...addresses].join('\n');
 }
 
 // ─── HTML href contact extraction ────────────────────────────────────────────
