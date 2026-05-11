@@ -13,6 +13,7 @@
   var p = config.primaryColor || '#7c3aed';
   var s = config.secondaryColor || '#4338ca';
   var iconType = config.icon || 'chat';
+  var greeting = config.greeting || '¡Hola! ¿En qué puedo ayudarte hoy?';
 
   function hexToRgb(hex) {
     return parseInt(hex.slice(1,3),16)+','+parseInt(hex.slice(3,5),16)+','+parseInt(hex.slice(5,7),16);
@@ -287,7 +288,7 @@
 
   var win = document.createElement('div');
   win.id = 'cb-win';
-  win.innerHTML = '<div id="cb-head"><div id="cb-head-dot"></div>' + botName + '</div><div id="cb-msgs"><div class="cb-msg cb-bot">¡Hola! ¿En qué puedo ayudarte hoy?</div></div><div id="cb-form"><input id="cb-inp" type="text" placeholder="Escribe un mensaje…"/><button id="cb-btn">➤</button></div>';
+  win.innerHTML = '<div id="cb-head"><div id="cb-head-dot"></div>' + botName + '</div><div id="cb-msgs"><div class="cb-msg cb-bot">' + greeting + '</div></div><div id="cb-form"><input id="cb-inp" type="text" placeholder="Escribe un mensaje…"/><button id="cb-btn">➤</button></div>';
   document.body.appendChild(win);
 
   var msgs = win.querySelector('#cb-msgs');

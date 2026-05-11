@@ -19,6 +19,8 @@ interface Chatbot {
   icon_type?: string;
   system_prompt?: string;
   source_url?: string;
+  greeting?: string;
+  chatbot_language?: string;
 }
 
 const ICON_OPTIONS = [
@@ -33,13 +35,13 @@ const WIDGET_STYLES = ['bubble','minimal','rounded','dark','neon','corporate','s
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://chatbot-builder-iota.vercel.app';
 
-function buildSnippet(chatbotId: string, name: string, primary: string, secondary: string, style: string, icon: string) {
+function buildSnippet(chatbotId: string, name: string, primary: string, secondary: string, style: string, icon: string, greeting: string) {
   const safe = (s: string) => s.replace(/[`"\\]/g, '');
-  return `<!-- Chatbot: ${safe(name)} -->\n<script>window.ChatbotConfig={chatbotId:"${chatbotId}",name:"${safe(name)}",primaryColor:"${primary}",secondaryColor:"${secondary}",style:"${style}",icon:"${icon}"};</script>\n<script src="${APP_URL}/widget.js" async defer></script>`;
+  return `<!-- Chatbot: ${safe(name)} -->\n<script>window.ChatbotConfig={chatbotId:"${chatbotId}",name:"${safe(name)}",primaryColor:"${primary}",secondaryColor:"${secondary}",style:"${style}",icon:"${icon}",greeting:"${safe(greeting)}"};</script>\n<script src="${APP_URL}/widget.js" async defer></script>`;
 }
 
-function buildMarkdown(chatbotId: string, name: string, primary: string, secondary: string, style: string, icon: string) {
-  const snippet = buildSnippet(chatbotId, name, primary, secondary, style, icon);
+function buildMarkdown(chatbotId: string, name: string, primary: string, secondary: string, style: string, icon: string, greeting: string) {
+  const snippet = buildSnippet(chatbotId, name, primary, secondary, style, icon, greeting);
   const host = new URL(APP_URL).hostname;
   return `# Chatbot: ${name}
 
@@ -92,6 +94,9 @@ export function ChatbotCard({ chatbot: initial }: { chatbot: Chatbot }) {
   const [reinjectStatus, setReinjectStatus] = useState<'idle' | 'loading' | 'ok' | 'error'>('idle');
   const [reinjectMessage, setReinjectMessage] = useState('');
 
+  const [editName, setEditName] = useState(chatbot.name);
+  const [editGreeting, setEditGreeting] = useState(chatbot.greeting || '¡Hola! ¿En qué puedo ayudarte hoy?');
+  const [editLanguage, setEditLanguage] = useState(chatbot.chatbot_language || 'es');
   const [editPrimary, setEditPrimary] = useState(chatbot.primary_color || '#7c3aed');
   const [editSecondary, setEditSecondary] = useState(chatbot.secondary_color || '#4338ca');
   const [editStyle, setEditStyle] = useState(chatbot.widget_style || 'bubble');
@@ -129,6 +134,9 @@ export function ChatbotCard({ chatbot: initial }: { chatbot: Chatbot }) {
   }
 
   function openPanel() {
+    setEditName(chatbot.name);
+    setEditGreeting(chatbot.greeting || '¡Hola! ¿En qué puedo ayudarte hoy?');
+    setEditLanguage(chatbot.chatbot_language || 'es');
     setEditPrimary(chatbot.primary_color || '#7c3aed');
     setEditSecondary(chatbot.secondary_color || '#4338ca');
     setEditStyle(chatbot.widget_style || 'bubble');
@@ -204,6 +212,9 @@ export function ChatbotCard({ chatbot: initial }: { chatbot: Chatbot }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'customize',
+          name: editName.trim() || chatbot.name,
+          greeting: editGreeting,
+          chatbotLanguage: editLanguage,
           primaryColor: editPrimary,
           secondaryColor: editSecondary,
           widgetStyle: editStyle,
@@ -230,6 +241,7 @@ export function ChatbotCard({ chatbot: initial }: { chatbot: Chatbot }) {
       chatbot.secondary_color || '#4338ca',
       chatbot.widget_style || 'bubble',
       chatbot.icon_type || 'chat',
+      chatbot.greeting || '¡Hola! ¿En qué puedo ayudarte hoy?',
     );
     const filename = `chatbot-${chatbot.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.md`;
     downloadFile(md, filename);
@@ -237,8 +249,9 @@ export function ChatbotCard({ chatbot: initial }: { chatbot: Chatbot }) {
 
   function redownloadPanel() {
     setRedownloading(true);
-    const md = buildMarkdown(chatbot.id, chatbot.name, editPrimary, editSecondary, editStyle, editIcon);
-    const filename = `chatbot-${chatbot.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.md`;
+    const name = editName.trim() || chatbot.name;
+    const md = buildMarkdown(chatbot.id, name, editPrimary, editSecondary, editStyle, editIcon, editGreeting);
+    const filename = `chatbot-${name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.md`;
     downloadFile(md, filename);
     setRedownloading(false);
   }
@@ -342,6 +355,48 @@ export function ChatbotCard({ chatbot: initial }: { chatbot: Chatbot }) {
             </div>
 
             <div className="p-6 space-y-6 max-h-[70vh] overflow-y-auto">
+              {/* Name */}
+              <div>
+                <label className="block text-sm font-medium text-white/80 mb-2">Nombre del chatbot</label>
+                <input
+                  type="text"
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  placeholder="Ej: Asistente de TuEmpresa"
+                  className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white placeholder-white/25 outline-none focus:border-violet-500/60 focus:ring-1 focus:ring-violet-500/30"
+                />
+              </div>
+
+              {/* Greeting */}
+              <div>
+                <label className="block text-sm font-medium text-white/80 mb-2">Mensaje de bienvenida</label>
+                <input
+                  type="text"
+                  value={editGreeting}
+                  onChange={(e) => setEditGreeting(e.target.value)}
+                  placeholder="¡Hola! ¿En qué puedo ayudarte hoy?"
+                  className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white placeholder-white/25 outline-none focus:border-violet-500/60 focus:ring-1 focus:ring-violet-500/30"
+                />
+                <p className="text-xs text-white/30 mt-1.5">Este mensaje aparece cuando el visitante abre el chat.</p>
+              </div>
+
+              {/* Language */}
+              <div>
+                <p className="text-sm font-medium text-white/80 mb-2">Idioma del chatbot</p>
+                <div className="flex gap-2">
+                  {(['es', 'en'] as const).map((lang) => (
+                    <button
+                      key={lang}
+                      onClick={() => setEditLanguage(lang)}
+                      className={`flex-1 py-2 rounded-xl border text-sm font-medium transition-all cursor-pointer ${editLanguage === lang ? 'bg-violet-600 border-violet-500 text-white' : 'bg-white/5 border-white/10 text-white/50 hover:text-white hover:border-white/20'}`}
+                    >
+                      {lang === 'es' ? '🇪🇸 Español' : '🇬🇧 English'}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-white/30 mt-1.5">Afecta al idioma cuando regeneres el prompt desde la web.</p>
+              </div>
+
               {/* Color pickers */}
               <div>
                 <p className="text-sm font-medium text-white/80 mb-3">Colores del widget</p>
@@ -368,7 +423,7 @@ export function ChatbotCard({ chatbot: initial }: { chatbot: Chatbot }) {
                     {chatbot.name}
                   </div>
                   <div className="px-4 py-3 flex flex-col gap-2">
-                    <div className="text-xs text-white/70 bg-white/5 rounded-lg px-3 py-2 self-start max-w-[75%]">¡Hola! ¿En qué puedo ayudarte?</div>
+                    <div className="text-xs text-white/70 bg-white/5 rounded-lg px-3 py-2 self-start max-w-[75%]">{editGreeting || '¡Hola! ¿En qué puedo ayudarte?'}</div>
                     <div className="text-xs text-white rounded-lg px-3 py-2 self-end max-w-[75%]" style={{ background: `linear-gradient(135deg, ${editPrimary}, ${editSecondary})` }}>Hola, necesito información</div>
                   </div>
                 </div>

@@ -85,6 +85,7 @@ export async function injectWidget(
   secondaryColor = '#4338ca',
   widgetStyle = 'bubble',
   iconType = 'chat',
+  greeting = '¡Hola! ¿En qué puedo ayudarte hoy?',
 ): Promise<InjectResult> {
   const headers = makeHeaders(token);
 
@@ -134,7 +135,7 @@ export async function injectWidget(
 
   const layout = files.find((f) => /^(src\/)?app\/layout\.[jt]sx?$/.test(f));
   if (layout) {
-    const result = await tryInjectIntoNextLayout(token, owner, repo, layout, chatbotId, chatbotName, appUrl, primaryColor, secondaryColor, widgetStyle, iconType);
+    const result = await tryInjectIntoNextLayout(token, owner, repo, layout, chatbotId, chatbotName, appUrl, primaryColor, secondaryColor, widgetStyle, iconType, greeting);
     if (result.ok) injectResult = { injected: !result.prUrl, file: layout, prUrl: result.prUrl };
     else return { injected: false, reason: result.error };
   }
@@ -142,7 +143,7 @@ export async function injectWidget(
   if (!injectResult) {
     const document = files.find((f) => /^(src\/)?pages\/_document\.[jt]sx?$/.test(f));
     if (document) {
-      const result = await tryInjectIntoNextDocument(token, owner, repo, document, chatbotId, chatbotName, appUrl, primaryColor, secondaryColor, widgetStyle, iconType);
+      const result = await tryInjectIntoNextDocument(token, owner, repo, document, chatbotId, chatbotName, appUrl, primaryColor, secondaryColor, widgetStyle, iconType, greeting);
       if (result.ok) injectResult = { injected: !result.prUrl, file: document, prUrl: result.prUrl };
       else return { injected: false, reason: result.error };
     }
@@ -161,7 +162,7 @@ export async function injectWidget(
       });
 
     for (const path of htmlFiles) {
-      const result = await tryInjectIntoMarkupFile(token, owner, repo, path, chatbotId, chatbotName, appUrl, primaryColor, secondaryColor, widgetStyle, iconType);
+      const result = await tryInjectIntoMarkupFile(token, owner, repo, path, chatbotId, chatbotName, appUrl, primaryColor, secondaryColor, widgetStyle, iconType, greeting);
       // Inject into ALL html files; record first success as the primary result
       if (result.ok && !injectResult) injectResult = { injected: !result.prUrl, file: path, prUrl: result.prUrl };
     }
@@ -179,7 +180,7 @@ export async function injectWidget(
       .slice(0, 5);
 
     for (const path of phpFiles) {
-      const result = await tryInjectIntoMarkupFile(token, owner, repo, path, chatbotId, chatbotName, appUrl, primaryColor, secondaryColor, widgetStyle, iconType);
+      const result = await tryInjectIntoMarkupFile(token, owner, repo, path, chatbotId, chatbotName, appUrl, primaryColor, secondaryColor, widgetStyle, iconType, greeting);
       if (result.ok) { injectResult = { injected: !result.prUrl, file: path, prUrl: result.prUrl }; break; }
     }
 
@@ -422,6 +423,7 @@ async function tryInjectIntoMarkupFile(
   secondaryColor = '#4338ca',
   widgetStyle = 'bubble',
   iconType = 'chat',
+  greeting = '¡Hola! ¿En qué puedo ayudarte hoy?',
 ): Promise<TryResult> {
   const headers = makeHeaders(token);
   const res = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/contents/${filePath}`, { headers });
@@ -436,7 +438,8 @@ async function tryInjectIntoMarkupFile(
     .replace(/\n?[ \t]*<!-- Chatbot: [^\n]+ -->\n[ \t]*<script>window\.ChatbotConfig[^\n]+<\/script>\n[ \t]*<script src="[^\n]+\/widget\.js" async defer><\/script>/g, '')
     .replace(/\n?[ \t]*<!-- Chatbot: [^\n]+ -->\n[ \t]*<script>[^\n]+<\/script>\n[ \t]*<script src="[^\n]+\/widget\.js" async defer><\/script>/g, '');
 
-  const configJson = `{chatbotId:"${chatbotId}",name:"${chatbotName}",primaryColor:"${primaryColor}",secondaryColor:"${secondaryColor}",style:"${widgetStyle}",icon:"${iconType}"}`;
+  const safeGreeting = greeting.replace(/[`"\\]/g, '');
+  const configJson = `{chatbotId:"${chatbotId}",name:"${chatbotName}",primaryColor:"${primaryColor}",secondaryColor:"${secondaryColor}",style:"${widgetStyle}",icon:"${iconType}",greeting:"${safeGreeting}"}`;
   const snippet = `\n  <!-- Chatbot: ${chatbotName} -->\n  <script>window.ChatbotConfig=${configJson};</script>\n  <script src="${appUrl}/widget.js" async defer></script>`;
 
   if (content.includes('</body>')) {
@@ -461,6 +464,7 @@ async function tryInjectIntoNextLayout(
   secondaryColor = '#4338ca',
   widgetStyle = 'bubble',
   iconType = 'chat',
+  greeting = '¡Hola! ¿En qué puedo ayudarte hoy?',
 ): Promise<TryResult> {
   const headers = makeHeaders(token);
   const res = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/contents/${filePath}`, { headers });
@@ -487,7 +491,8 @@ async function tryInjectIntoNextLayout(
 
   const safeStyle = widgetStyle.replace(/[`"\\]/g, '');
   const safeIcon = iconType.replace(/[`"\\]/g, '');
-  const configJson = `{chatbotId:"${chatbotId}",name:"${safeName}",primaryColor:"${safePrimary}",secondaryColor:"${safeSecondary}",style:"${safeStyle}",icon:"${safeIcon}"}`;
+  const safeGreeting = greeting.replace(/[`"\\]/g, '');
+  const configJson = `{chatbotId:"${chatbotId}",name:"${safeName}",primaryColor:"${safePrimary}",secondaryColor:"${safeSecondary}",style:"${safeStyle}",icon:"${safeIcon}",greeting:"${safeGreeting}"}`;
   const snippet = `\n      {/* Chatbot: ${safeName} */}\n      <script dangerouslySetInnerHTML={{__html:\`window.ChatbotConfig=${configJson};\`}} />\n      <script src="${appUrl}/widget.js" async defer />\n      `;
   const updated = content.slice(0, idx) + snippet + content.slice(idx);
 
@@ -506,6 +511,7 @@ async function tryInjectIntoNextDocument(
   secondaryColor = '#4338ca',
   widgetStyle = 'bubble',
   iconType = 'chat',
+  greeting = '¡Hola! ¿En qué puedo ayudarte hoy?',
 ): Promise<TryResult> {
   const headers = makeHeaders(token);
   const res = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/contents/${filePath}`, { headers });
@@ -520,7 +526,8 @@ async function tryInjectIntoNextDocument(
   const safeSecondary = secondaryColor.replace(/[`"\\]/g, '');
   const safeStyle = widgetStyle.replace(/[`"\\]/g, '');
   const safeIcon = iconType.replace(/[`"\\]/g, '');
-  const configJson = `{chatbotId:"${chatbotId}",name:"${safeName}",primaryColor:"${safePrimary}",secondaryColor:"${safeSecondary}",style:"${safeStyle}",icon:"${safeIcon}"}`;
+  const safeGreetingDoc = greeting.replace(/[`"\\]/g, '');
+  const configJson = `{chatbotId:"${chatbotId}",name:"${safeName}",primaryColor:"${safePrimary}",secondaryColor:"${safeSecondary}",style:"${safeStyle}",icon:"${safeIcon}",greeting:"${safeGreetingDoc}"}`;
   const snippet = `\n        {/* Chatbot: ${safeName} */}\n        <script dangerouslySetInnerHTML={{__html:\`window.ChatbotConfig=${configJson};\`}} />\n        <script src="${appUrl}/widget.js" async defer />\n        `;
 
   let updated: string;

@@ -499,6 +499,9 @@ export async function POST(request: NextRequest) {
     const jinaText = jinaResult.status === 'fulfilled' ? jinaResult.value : '';
     const sitemapUrls = sitemapResult.status === 'fulfilled' ? sitemapResult.value : [];
 
+    const langMatch = html.match(/<html[^>]*\s+lang=["']([^"']+)["']/i);
+    const detectedLanguage = langMatch ? langMatch[1].split('-')[0].toLowerCase() : null;
+
     console.log(`[scrape] apify=${apifyText?.length ?? 'null'} jina=${jinaText.length} html=${html.length} sitemap=${sitemapUrls.length}`);
 
     // Colors: screenshot (Claude Haiku) first, CSS extraction as fallback
@@ -665,7 +668,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No se pudo extraer contenido útil de esta web. La página puede requerir inicio de sesión, estar bloqueando scrapers, o el contenido es principalmente visual.' }, { status: 422 });
     }
 
-    return NextResponse.json({ text: textContent, primaryColor, secondaryColor, widgetStyle });
+    return NextResponse.json({ text: textContent, primaryColor, secondaryColor, widgetStyle, detectedLanguage });
   } catch {
     return NextResponse.json({ error: 'No se pudo acceder a la URL' }, { status: 422 });
   }

@@ -14,13 +14,13 @@ interface Repo {
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://chatbot-builder-iota.vercel.app';
 
-function buildSnippet(chatbotId: string, name: string, primary: string, secondary: string, style: string, icon: string) {
+function buildSnippet(chatbotId: string, name: string, primary: string, secondary: string, style: string, icon: string, greeting: string) {
   const safe = (s: string) => s.replace(/[`"\\]/g, '');
-  return `<!-- Chatbot: ${safe(name)} -->\n<script>window.ChatbotConfig={chatbotId:"${chatbotId}",name:"${safe(name)}",primaryColor:"${primary}",secondaryColor:"${secondary}",style:"${style}",icon:"${icon}"};</script>\n<script src="${APP_URL}/widget.js" async defer></script>`;
+  return `<!-- Chatbot: ${safe(name)} -->\n<script>window.ChatbotConfig={chatbotId:"${chatbotId}",name:"${safe(name)}",primaryColor:"${primary}",secondaryColor:"${secondary}",style:"${style}",icon:"${icon}",greeting:"${safe(greeting)}"};</script>\n<script src="${APP_URL}/widget.js" async defer></script>`;
 }
 
-function buildMarkdown(chatbotId: string, name: string, primary: string, secondary: string, style: string, icon: string) {
-  const snippet = buildSnippet(chatbotId, name, primary, secondary, style, icon);
+function buildMarkdown(chatbotId: string, name: string, primary: string, secondary: string, style: string, icon: string, greeting: string) {
+  const snippet = buildSnippet(chatbotId, name, primary, secondary, style, icon, greeting);
   return `# Chatbot: ${name}
 
 Eres un asistente de IA. Tu tarea es integrar el siguiente widget de chatbot en este proyecto web. No necesitas hacer nada más que añadir el código de abajo en el lugar indicado.
@@ -99,6 +99,7 @@ export function CreateWizard({
     setStep("generating");
     try {
       let input = userInput;
+      let lang = 'es';
       if (inputMode === "url" && userInput) {
         const r = await fetch("/api/scrape", {
           method: "POST",
@@ -113,12 +114,13 @@ export function CreateWizard({
           setWidgetSecondary(d.secondaryColor);
         }
         if (d.widgetStyle) setWidgetStyle(d.widgetStyle);
+        if (d.detectedLanguage) { lang = d.detectedLanguage; }
         setSourceUrl(userInput);
       }
       const r = await fetch("/api/generate-prompt", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ input }),
+        body: JSON.stringify({ input, language: lang }),
       });
       const d = await r.json();
       if (d.prompt) { setPrompt(d.prompt); setStep("review"); }
@@ -158,6 +160,7 @@ export function CreateWizard({
     async function generate() {
       try {
         let input = initialInput;
+        let lang = 'es';
         if (initialMode === "url" && initialInput) {
           const r = await fetch("/api/scrape", {
             method: "POST",
@@ -172,12 +175,13 @@ export function CreateWizard({
             setWidgetSecondary(d.secondaryColor);
           }
           if (d.widgetStyle) setWidgetStyle(d.widgetStyle);
+          if (d.detectedLanguage) { lang = d.detectedLanguage; }
           setSourceUrl(initialInput);
         }
         const r = await fetch("/api/generate-prompt", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ input }),
+          body: JSON.stringify({ input, language: lang }),
         });
         const d = await r.json();
         if (d.prompt) { setPrompt(d.prompt); setStep("review"); }
@@ -189,10 +193,19 @@ export function CreateWizard({
     generate();
   }, []);
 
+  useEffect(() => {
+    if (step !== 'deploy') return;
+    fetch('/api/github/repos').then(async r => {
+      if (r.ok) { const d = await r.json(); setGithubConnected(true); setRepos(d.repos ?? []); }
+      else { setGithubConnected(false); }
+    }).catch(() => setGithubConnected(false));
+  }, [step]);
+
   async function loadRepos() {
     setDeployMethod('github');
     setStep("repo");
     setError("");
+    if (githubConnected === true && repos.length > 0) return;
     try {
       const r = await fetch("/api/github/repos");
       if (r.status === 400) { setGithubConnected(false); return; }
@@ -244,7 +257,7 @@ export function CreateWizard({
       });
       const data = await res.json();
       if (data.chatbot) {
-        const md = buildMarkdown(data.chatbot.id, chatbotName, widgetPrimary, widgetSecondary, widgetStyle, iconType);
+        const md = buildMarkdown(data.chatbot.id, chatbotName, widgetPrimary, widgetSecondary, widgetStyle, iconType, '¡Hola! ¿En qué puedo ayudarte hoy?');
         const filename = `chatbot-${chatbotName.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.md`;
         downloadFile(md, filename);
         router.push("/dashboard");
@@ -456,8 +469,16 @@ export function CreateWizard({
                     </svg>
                   </div>
                   <div className="flex-1">
-                    <p className="font-semibold text-white">Conectar con GitHub</p>
-                    <p className="text-sm text-white/40 mt-0.5">Inyectamos el widget automáticamente en tu repositorio.</p>
+                    <p className="font-semibold text-white">
+                      {githubConnected === true ? 'GitHub conectado ✓' : 'Conectar con GitHub'}
+                    </p>
+                    <p className="text-sm text-white/40 mt-0.5">
+                      {githubConnected === true
+                        ? `${repos.length} repositorio${repos.length !== 1 ? 's' : ''} disponible${repos.length !== 1 ? 's' : ''}`
+                        : githubConnected === null
+                        ? 'Verificando conexión…'
+                        : 'Inyectamos el widget automáticamente en tu repositorio.'}
+                    </p>
                   </div>
                   <svg className="h-4 w-4 text-white/30 group-hover:text-white/60 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />

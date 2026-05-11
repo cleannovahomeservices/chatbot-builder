@@ -30,7 +30,11 @@ Return ONLY the file content or NO_CSP. No markdown fences, no explanation. Pres
   return result;
 }
 
-export async function generateSystemPrompt(input: string): Promise<string> {
+export async function generateSystemPrompt(input: string, language: string = 'es'): Promise<string> {
+  const langInstruction = language === 'en'
+    ? 'The prompt MUST be written ENTIRELY in English. All instructions, all business data, everything must be in English.'
+    : 'El prompt DEBE estar escrito COMPLETAMENTE en español. Todas las instrucciones, todos los datos del negocio, absolutamente todo en español.';
+
   const msg = await client.messages.create({
     model: 'claude-sonnet-4-6',
     max_tokens: 6000,
@@ -62,7 +66,7 @@ REGLAS CRÍTICAS — debes seguirlas sin excepción:
 
 3. Si una información NO aparece en el contenido, NO la inventes. Omítela o indica que el cliente debe consultar directamente.
 
-4. El prompt debe estar en el mismo idioma que el contenido del negocio.
+4. IDIOMA: ${langInstruction}
 
 5. Define la personalidad del chatbot acorde al tipo de negocio.
 

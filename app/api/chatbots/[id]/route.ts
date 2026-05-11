@@ -53,12 +53,15 @@ export async function PATCH(
 
   // --- Customize action: update colors, system prompt, re-inject widget ---
   if (body.action === 'customize') {
-    const { primaryColor, secondaryColor, widgetStyle, iconType, systemPrompt } = body as {
+    const { primaryColor, secondaryColor, widgetStyle, iconType, systemPrompt, name, greeting, chatbotLanguage } = body as {
       primaryColor?: string;
       secondaryColor?: string;
       widgetStyle?: string;
       iconType?: string;
       systemPrompt?: string;
+      name?: string;
+      greeting?: string;
+      chatbotLanguage?: string;
     };
 
     const { data: chatbot } = await db
@@ -75,15 +78,18 @@ export async function PATCH(
     const style = widgetStyle || chatbot.widget_style || 'bubble';
     const icon = iconType || chatbot.icon_type || 'chat';
     const prompt = systemPrompt !== undefined ? systemPrompt : chatbot.system_prompt;
+    const updatedName = name?.trim() || chatbot.name;
+    const updatedGreeting = greeting !== undefined ? greeting : (chatbot.greeting ?? '¡Hola! ¿En qué puedo ayudarte hoy?');
+    const updatedLanguage = chatbotLanguage || chatbot.chatbot_language || 'es';
 
-    // Re-inject widget with new colors
+    // Re-inject widget with new config
     if (chatbot.github_repo && user.github_access_token && chatbot.status === 'active') {
       const [owner, repo] = chatbot.github_repo.split('/');
       try {
         await injectWidget(
           user.github_access_token, owner, repo,
-          chatbot.id, chatbot.name, appUrl,
-          primary, secondary, style, icon,
+          chatbot.id, updatedName, appUrl,
+          primary, secondary, style, icon, updatedGreeting,
         );
       } catch (e) {
         console.error('[customize] GitHub re-inject error:', e);
@@ -91,7 +97,12 @@ export async function PATCH(
     }
 
     // Persist to DB (graceful fallback if color columns don't exist)
-    const updatePayload: Record<string, unknown> = { system_prompt: prompt };
+    const updatePayload: Record<string, unknown> = {
+      system_prompt: prompt,
+      name: updatedName,
+      greeting: updatedGreeting,
+      chatbot_language: updatedLanguage,
+    };
     let result = await db
       .from('chatbots')
       .update({ ...updatePayload, primary_color: primary, secondary_color: secondary, widget_style: style, icon_type: icon })
@@ -148,6 +159,7 @@ export async function PATCH(
           chatbot.secondary_color || '#4338ca',
           chatbot.widget_style || 'bubble',
           chatbot.icon_type || 'chat',
+          chatbot.greeting || '¡Hola! ¿En qué puedo ayudarte hoy?',
         );
         injected = result.injected;
         message = result.injected ? `Inyectado en ${result.file}` : (result.reason ?? 'Error desconocido');
@@ -174,7 +186,7 @@ export async function PATCH(
 
   const { data: chatbot } = await db
     .from('chatbots')
-    .select('github_repo, name, primary_color, secondary_color, widget_style, icon_type')
+    .select('github_repo, name, primary_color, secondary_color, widget_style, icon_type, greeting')
     .eq('id', id)
     .eq('user_id', user.id)
     .single();
@@ -194,6 +206,7 @@ export async function PATCH(
           chatbot.secondary_color || '#4338ca',
           chatbot.widget_style || 'bubble',
           chatbot.icon_type || 'chat',
+          chatbot.greeting || '¡Hola! ¿En qué puedo ayudarte hoy?',
         );
       }
     } catch (e) {
