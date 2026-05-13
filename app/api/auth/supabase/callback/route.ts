@@ -76,6 +76,7 @@ export async function GET(request: NextRequest) {
       : { data: null };
 
     if (byEmail) {
+      // Preserve existing plan — never downgrade on account link
       const { data } = await db
         .from('users')
         .update({
@@ -84,6 +85,7 @@ export async function GET(request: NextRequest) {
           google_name: googleName,
           google_avatar_url: googleAvatar,
           updated_at: new Date().toISOString(),
+          // plan is intentionally NOT updated here — keep whatever the user already has
         })
         .eq('id', byEmail.id)
         .select()

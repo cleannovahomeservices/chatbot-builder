@@ -55,7 +55,20 @@ export async function GET(request: NextRequest) {
 
         if (conflictUser) {
           try {
+            // Read the conflicting user's full data to preserve their plan if better
+            const { data: conflictFull } = await db
+              .from('users')
+              .select('plan')
+              .eq('id', conflictUser.id)
+              .single();
+
+            const PLAN_RANK: Record<string, number> = { free: 0, starter: 1, pro: 2, unlimited: 3 };
+            const existingRank = PLAN_RANK[existingUser.plan ?? 'free'] ?? 0;
+            const conflictRank = PLAN_RANK[conflictFull?.plan ?? 'free'] ?? 0;
+            const bestPlan = conflictRank > existingRank ? conflictFull!.plan : (existingUser.plan ?? 'free');
+
             await db.from('chatbots').update({ user_id: existingUser.id }).eq('user_id', conflictUser.id);
+            await db.from('message_usage').update({ user_id: existingUser.id }).eq('user_id', conflictUser.id);
             await db.from('sessions').delete().eq('user_id', conflictUser.id);
             await db.from('users').delete().eq('id', conflictUser.id);
             const { error: retryError } = await db
@@ -66,6 +79,7 @@ export async function GET(request: NextRequest) {
                 github_email: githubUser.email,
                 github_avatar_url: githubUser.avatar_url,
                 github_access_token: accessToken,
+                plan: bestPlan,
                 updated_at: new Date().toISOString(),
               })
               .eq('id', existingUser.id);
