@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { injectWidget } from '@/lib/github';
+import { checkChatbotLimit } from '@/lib/plans';
 
 export async function POST(request: NextRequest) {
   const user = await getSession();
@@ -14,6 +15,14 @@ export async function POST(request: NextRequest) {
 
   if (!name || !systemPrompt) {
     return NextResponse.json({ error: 'Faltan campos requeridos' }, { status: 400 });
+  }
+
+  const canCreate = await checkChatbotLimit(user.id);
+  if (!canCreate) {
+    return NextResponse.json(
+      { error: 'limit_reached', message: 'Has alcanzado el límite de chatbots de tu plan. Actualiza tu plan en botluma.com.' },
+      { status: 403 }
+    );
   }
 
   const colors = {

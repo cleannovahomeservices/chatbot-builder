@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { checkMessageLimit, incrementMessageCount } from '@/lib/plans';
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -30,7 +31,7 @@ export async function POST(request: NextRequest) {
   }
 
   const db = createAdminClient();
-  const query = db.from('chatbots').select('system_prompt');
+  const query = db.from('chatbots').select('system_prompt, user_id');
   const { data: chatbot } = chatbotId
     ? await query.eq('id', chatbotId).maybeSingle()
     : await query.eq('n8n_webhook_url', webhookUrl).maybeSingle();
@@ -38,6 +39,15 @@ export async function POST(request: NextRequest) {
   if (!chatbot?.system_prompt) {
     return NextResponse.json({ output: 'Este chatbot no está configurado todavía.' }, { headers: CORS });
   }
+
+  const canChat = await checkMessageLimit(chatbot.user_id);
+  if (!canChat) {
+    return NextResponse.json(
+      { output: 'Este chatbot ha alcanzado el límite de mensajes de su plan. El propietario puede ampliar el plan en botluma.com.' },
+      { headers: CORS }
+    );
+  }
+  await incrementMessageCount(chatbot.user_id);
 
   const history = getHistory(sessionId);
   pushHistory(sessionId, 'user', message);

@@ -1,9 +1,11 @@
 import { getSession } from '@/lib/session';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { getUserPlanData } from '@/lib/plans';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { ChatbotCard } from './chatbot-card';
 import { HelpWidget } from './help-widget';
+import { PlanBanner, NewChatbotButton } from './plan-banner';
 
 interface Chatbot {
   id: string;
@@ -21,11 +23,10 @@ export default async function DashboardPage() {
   if (!user) redirect('/login');
 
   const db = createAdminClient();
-  const { data: chatbots } = await db
-    .from('chatbots')
-    .select('*')
-    .eq('user_id', user.id)
-    .order('created_at', { ascending: false });
+  const [{ data: chatbots }, planData] = await Promise.all([
+    db.from('chatbots').select('*').eq('user_id', user.id).order('created_at', { ascending: false }),
+    getUserPlanData(user.id),
+  ]);
 
   return (
     <main className="min-h-screen bg-[#0A0A0A] text-white">
@@ -61,20 +62,17 @@ export default async function DashboardPage() {
       </nav>
 
       <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-8">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-6">
           <div>
             <h1 className="text-2xl sm:text-3xl font-bold">Mis chatbots</h1>
             <p className="text-white/50 mt-1">
-              Hola, {user.github_username ?? user.google_name ?? user.email_address?.split("@")[0]}
+              Hola, {user.github_username ?? user.google_name ?? user.email_address?.split('@')[0]}
             </p>
           </div>
-          <Link
-            href="/"
-            className="rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 px-5 py-2.5 text-sm font-semibold text-white hover:from-violet-500 hover:to-indigo-500 transition text-center sm:text-left"
-          >
-            + Nuevo chatbot
-          </Link>
+          <NewChatbotButton canCreate={planData.canCreateChatbot} plan={planData.plan} />
         </div>
+
+        <PlanBanner data={planData} />
 
         {!chatbots || chatbots.length === 0 ? (
           <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-12 text-center">
