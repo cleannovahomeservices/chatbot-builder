@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { stripe } from '@/lib/stripe';
+import { getStripe } from '@/lib/stripe';
 
 export async function GET() {
   const user = await getSession();
@@ -19,6 +19,7 @@ export async function GET() {
   }
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://www.botluma.com';
+  const stripe = getStripe();
   const session = await stripe.billingPortal.sessions.create({
     customer: sub.stripe_customer_id,
     return_url: `${appUrl}/dashboard`,

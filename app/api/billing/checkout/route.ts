@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { stripe, STRIPE_PRICES } from '@/lib/stripe';
+import { getStripe, STRIPE_PRICES } from '@/lib/stripe';
 import type { PlanName } from '@/lib/plans';
 
 export async function POST(request: NextRequest) {
@@ -13,10 +13,10 @@ export async function POST(request: NextRequest) {
   if (!priceId) return NextResponse.json({ error: 'Plan inválido' }, { status: 400 });
 
   const db = createAdminClient();
+  const stripe = getStripe();
   const email = user.email_address || user.google_email || user.github_email || undefined;
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://www.botluma.com';
 
-  // Get or create Stripe customer
   const { data: sub } = await db
     .from('subscriptions')
     .select('stripe_customer_id')
