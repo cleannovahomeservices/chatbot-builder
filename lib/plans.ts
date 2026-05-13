@@ -73,21 +73,20 @@ export async function checkChatbotLimit(userId: string): Promise<boolean> {
   return (count ?? 0) < limit;
 }
 
-export async function checkMessageLimit(userId: string): Promise<boolean> {
+// Atomic check + increment in a single DB operation — no race condition possible.
+// Returns true if the message was allowed and counted, false if limit was reached.
+export async function checkAndIncrementMessage(userId: string): Promise<boolean> {
   const plan = await getUserPlan(userId);
   const limit = PLAN_LIMITS[plan].messages;
-  if (limit === -1) return true;
-
-  const used = await getMessageCount(userId, plan);
-  return used < limit;
-}
-
-export async function incrementMessageCount(userId: string): Promise<void> {
-  const plan = await getUserPlan(userId);
   const period = getPeriodForPlan(plan);
   const db = createAdminClient();
 
-  await db.rpc('increment_message_count', { p_user_id: userId, p_period: period });
+  const { data } = await db.rpc('check_and_increment_message', {
+    p_user_id: userId,
+    p_period: period,
+    p_limit: limit,
+  });
+  return data === true;
 }
 
 export async function getUserPlanData(userId: string) {
