@@ -20,6 +20,7 @@ export interface SessionUser {
   google_avatar_url: string | null;
   email_address: string | null;
   email_user_id: string | null;
+  display_name: string | null;
   plan: 'free' | 'starter' | 'pro' | 'unlimited';
 }
 

@@ -28,46 +28,15 @@ export default async function DashboardPage() {
     getUserPlanData(user.id),
   ]);
 
-  return (
-    <main className="min-h-screen bg-[#0A0A0A] text-white">
-      <nav className="border-b border-white/10 px-4 sm:px-6 py-4 flex items-center justify-between">
-        <span className="font-bold text-lg">Chatbot Builder</span>
-        <div className="flex items-center gap-3 sm:gap-4">
-          {user.github_access_token ? (
-            <span className="hidden sm:flex items-center gap-1.5 text-xs text-emerald-400/70">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block shrink-0" />
-              {user.github_username ? `@${user.github_username}` : 'GitHub conectado'}
-            </span>
-          ) : (
-            <a
-              href="/api/auth/github?next=/dashboard"
-              className="hidden sm:block text-xs text-violet-400 hover:text-violet-300 transition whitespace-nowrap"
-            >
-              Conectar GitHub →
-            </a>
-          )}
-          {(user.github_avatar_url ?? user.google_avatar_url) && (
-            <img
-              src={user.github_avatar_url ?? user.google_avatar_url ?? undefined}
-              alt={user.github_username ?? user.google_name ?? undefined}
-              className="h-8 w-8 rounded-full border border-white/20"
-            />
-          )}
-          <form action="/api/auth/logout" method="POST">
-            <button className="text-sm text-white/50 hover:text-white transition cursor-pointer">
-              Cerrar sesión
-            </button>
-          </form>
-        </div>
-      </nav>
+  const displayName = user.github_username ?? user.google_name ?? user.email_address?.split('@')[0];
 
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
+  return (
+    <>
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-6">
           <div>
             <h1 className="text-2xl sm:text-3xl font-bold">Mis chatbots</h1>
-            <p className="text-white/50 mt-1">
-              Hola, {user.github_username ?? user.google_name ?? user.email_address?.split('@')[0]}
-            </p>
+            <p className="text-white/50 mt-1">Hola, {displayName}</p>
           </div>
           <NewChatbotButton canCreate={planData.canCreateChatbot} plan={planData.plan} />
         </div>
@@ -93,6 +62,6 @@ export default async function DashboardPage() {
         )}
       </div>
       <HelpWidget />
-    </main>
+    </>
   );
 }
