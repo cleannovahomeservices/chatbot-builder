@@ -3,6 +3,9 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import { redirect } from 'next/navigation';
 import { ExtractorClient } from './client';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 interface PastExtraction {
   id: string;
   google_url: string;

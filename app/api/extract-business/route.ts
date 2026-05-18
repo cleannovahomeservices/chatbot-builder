@@ -379,9 +379,13 @@ export async function POST(request: NextRequest) {
       id: extractionId,
       title: businessData.title,
       address: businessData.address,
+      phone: businessData.phone,
+      website: businessData.website,
+      categoryName: businessData.categoryName,
       reviewsCount: reviewsData.length,
       photosCount: uploadedUrls.length,
       totalScore: businessData.totalScore,
+      hasOpeningHours: (businessData.openingHours?.length ?? 0) > 0,
     });
   } catch (e) {
     console.error('[extract] error:', e);

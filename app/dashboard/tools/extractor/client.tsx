@@ -16,9 +16,13 @@ interface ExtractionResult {
   id: string;
   title?: string;
   address?: string;
+  phone?: string;
+  website?: string;
+  categoryName?: string;
   reviewsCount: number;
   photosCount: number;
   totalScore?: number;
+  hasOpeningHours?: boolean;
 }
 
 const IconMap = () => (
@@ -157,9 +161,14 @@ export function ExtractorClient({ initialHistory }: { initialHistory: HistoryIte
               <div className="min-w-0">
                 <p className="text-emerald-300 text-xs font-semibold uppercase tracking-wider">¡Extracción completada!</p>
                 <h3 className="text-lg font-semibold text-white mt-1 truncate">{result.title}</h3>
-                {result.address && <p className="text-sm text-white/50 mt-0.5 truncate">{result.address}</p>}
+                {result.categoryName && <p className="text-xs text-white/40 mt-0.5">{result.categoryName}</p>}
+                {result.address && <p className="text-sm text-white/50 mt-0.5 truncate">📍 {result.address}</p>}
+                {result.phone && <p className="text-sm text-white/50 mt-0.5">📞 {result.phone}</p>}
+                {result.website && (
+                  <p className="text-sm text-white/50 mt-0.5 truncate">🌐 <a href={result.website} target="_blank" rel="noopener" className="hover:text-white/80 underline">{result.website}</a></p>
+                )}
               </div>
-              {result.totalScore !== undefined && (
+              {typeof result.totalScore === 'number' && Number.isFinite(result.totalScore) && (
                 <div className="flex items-center gap-1 text-amber-400 shrink-0">
                   <IconStar />
                   <span className="text-sm font-semibold">{result.totalScore.toFixed(1)}</span>
@@ -173,7 +182,16 @@ export function ExtractorClient({ initialHistory }: { initialHistory: HistoryIte
               <span className="rounded-full bg-white/5 px-2.5 py-1 text-white/60">
                 {result.photosCount} {result.photosCount === 1 ? 'foto' : 'fotos'}
               </span>
+              {result.hasOpeningHours && (
+                <span className="rounded-full bg-white/5 px-2.5 py-1 text-white/60">Con horarios</span>
+              )}
             </div>
+            {(result.reviewsCount === 0 && !result.address) && (
+              <div className="mb-4 rounded-lg bg-amber-500/10 border border-amber-500/20 px-3 py-2.5 text-xs text-amber-200">
+                ⚠️ Este negocio tiene info limitada en Google Maps (sin dirección física ni reseñas públicas).
+                El prompt y las fotos se generan igual con lo que sí está disponible.
+              </div>
+            )}
             <button
               onClick={() => downloadZip(result.id)}
               className="flex items-center justify-center gap-2 w-full rounded-xl bg-white text-black hover:bg-white/90 py-2.5 text-sm font-semibold transition"
@@ -192,10 +210,13 @@ export function ExtractorClient({ initialHistory }: { initialHistory: HistoryIte
             {history.map((item) => {
               const title = item.business_data?.title ?? 'Extracción';
               const address = item.business_data?.address;
-              const score = item.business_data?.totalScore;
-              const photos = item.photo_urls?.length ?? 0;
-              const reviews = item.reviews?.length ?? 0;
-              const date = new Date(item.created_at).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' });
+              const rawScore = item.business_data?.totalScore;
+              const score = typeof rawScore === 'number' && Number.isFinite(rawScore) ? rawScore : null;
+              const photos = Array.isArray(item.photo_urls) ? item.photo_urls.length : 0;
+              const reviews = Array.isArray(item.reviews) ? item.reviews.length : 0;
+              const date = item.created_at
+                ? new Date(item.created_at).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })
+                : '';
               const failed = item.status === 'failed';
 
               return (
@@ -206,7 +227,7 @@ export function ExtractorClient({ initialHistory }: { initialHistory: HistoryIte
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <h3 className="font-medium text-white truncate">{title}</h3>
-                      {score !== undefined && (
+                      {score !== null && (
                         <span className="flex items-center gap-0.5 text-amber-400 text-xs">
                           <IconStar />
                           {score.toFixed(1)}

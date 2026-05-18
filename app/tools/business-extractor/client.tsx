@@ -164,7 +164,7 @@ export function PublicExtractorClient() {
                   <h3 className="text-lg font-semibold text-white mt-1 truncate">{result.title}</h3>
                   {result.address && <p className="text-sm text-white/50 mt-0.5 truncate">{result.address}</p>}
                 </div>
-                {result.totalScore !== undefined && (
+                {typeof result.totalScore === 'number' && Number.isFinite(result.totalScore) && (
                   <div className="flex items-center gap-1 text-amber-400 shrink-0">
                     <IconStar />
                     <span className="text-sm font-semibold">{result.totalScore.toFixed(1)}</span>
