@@ -1,0 +1,167 @@
+{
+  "sha": "60053e5c8cc381cd5a549b5ce38eb2fb44a9741a",
+  "url": "https://api.github.com/repos/cleannovahomeservices/conscious-creation-website/git/trees/60053e5c8cc381cd5a549b5ce38eb2fb44a9741a",
+  "tree": [
+    {
+      "path": ".gitignore",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e985853ed84acf10f62f639a4733083229c5a55d",
+      "size": 8,
+      "url": "https://api.github.com/repos/cleannovahomeservices/conscious-creation-website/git/blobs/e985853ed84acf10f62f639a4733083229c5a55d"
+    },
+    {
+      "path": "IMPLEMENTATION_GUIDE.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e45369dfda198cc0e671528186667cde6639f027",
+      "size": 7266,
+      "url": "https://api.github.com/repos/cleannovahomeservices/conscious-creation-website/git/blobs/e45369dfda198cc0e671528186667cde6639f027"
+    },
+    {
+      "path": "README.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "a8560821b170e4621ffd6bb3974eade31662e18f",
+      "size": 3999,
+      "url": "https://api.github.com/repos/cleannovahomeservices/conscious-creation-website/git/blobs/a8560821b170e4621ffd6bb3974eade31662e18f"
+    },
+    {
+      "path": "The_Practice_21_Days.pdf",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "a2071ca8954c305483fcde24092c053d5c334864",
+      "size": 151828,
+      "url": "https://api.github.com/repos/cleannovahomeservices/conscious-creation-website/git/blobs/a2071ca8954c305483fcde24092c053d5c334864"
+    },
+    {
+      "path": "The_Way_of_Conscious_Creation.pdf",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "d50fb6c4875e90fae9a5fcd47cf5462053eca0f4",
+      "size": 498664,
+      "url": "https://api.github.com/repos/cleannovahomeservices/conscious-creation-website/git/blobs/d50fb6c4875e90fae9a5fcd47cf5462053eca0f4"
+    },
+    {
+      "path": "about.html",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "11a31a65d26050e9d67344fb2d9700fe3c325f1d",
+      "size": 7286,
+      "url": "https://api.github.com/repos/cleannovahomeservices/conscious-creation-website/git/blobs/11a31a65d26050e9d67344fb2d9700fe3c325f1d"
+    },
+    {
+      "path": "app.html",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "c822e32399a6f9b864ce3655184c4f7cc5250d3f",
+      "size": 8622,
+      "url": "https://api.github.com/repos/cleannovahomeservices/conscious-creation-website/git/blobs/c822e32399a6f9b864ce3655184c4f7cc5250d3f"
+    },
+    {
+      "path": "books.html",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "b220c8cac28c3f5dcec293fc6c3794a82c239068",
+      "size": 6543,
+      "url": "https://api.github.com/repos/cleannovahomeservices/conscious-creation-website/git/blobs/b220c8cac28c3f5dcec293fc6c3794a82c239068"
+    },
+    {
+      "path": "coaching.html",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "9aace9b20c39cadd55c129a20e5fc8212ac7a5ee",
+      "size": 13135,
+      "url": "https://api.github.com/repos/cleannovahomeservices/conscious-creation-website/git/blobs/9aace9b20c39cadd55c129a20e5fc8212ac7a5ee"
+    },
+    {
+      "path": "contact.html",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "0e34263833d429fd290db6a82f9b8149d99e6ba6",
+      "size": 6657,
+      "url": "https://api.github.com/repos/cleannovahomeservices/conscious-creation-website/git/blobs/0e34263833d429fd290db6a82f9b8149d99e6ba6"
+    },
+    {
+      "path": "course.html",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "7ec9a1e64bb6163177e70ced7c9f15716132c2ce",
+      "size": 5843,
+      "url": "https://api.github.com/repos/cleannovahomeservices/conscious-creation-website/git/blobs/7ec9a1e64bb6163177e70ced7c9f15716132c2ce"
+    },
+    {
+      "path": "favicon.svg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "24b0c37285be327656f76391623d7eeb96bc3014",
+      "size": 280,
+      "url": "https://api.github.com/repos/cleannovahomeservices/conscious-creation-website/git/blobs/24b0c37285be327656f76391623d7eeb96bc3014"
+    },
+    {
+      "path": "index.html",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "14a1b5d3daea1366f665bb6474f8b1be992968eb",
+      "size": 6096,
+      "url": "https://api.github.com/repos/cleannovahomeservices/conscious-creation-website/git/blobs/14a1b5d3daea1366f665bb6474f8b1be992968eb"
+    },
+    {
+      "path": "logo-mark.svg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "9a8038035480c46426ad0e5d3443b3919a92be79",
+      "size": 399,
+      "url": "https://api.github.com/repos/cleannovahomeservices/conscious-creation-website/git/blobs/9a8038035480c46426ad0e5d3443b3919a92be79"
+    },
+    {
+      "path": "logo-square.png",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "09dd2786ebe221bce0e119bbbb51dc895765218b",
+      "size": 152975,
+      "url": "https://api.github.com/repos/cleannovahomeservices/conscious-creation-website/git/blobs/09dd2786ebe221bce0e119bbbb51dc895765218b"
+    },
+    {
+      "path": "logo-square.svg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "16f05cc2964a673712e5cfc5e7117a888870121e",
+      "size": 1832,
+      "url": "https://api.github.com/repos/cleannovahomeservices/conscious-creation-website/git/blobs/16f05cc2964a673712e5cfc5e7117a888870121e"
+    },
+    {
+      "path": "sovereign-year.html",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "97822299b8703356f90d237a2bb8a07a870b2271",
+      "size": 7678,
+      "url": "https://api.github.com/repos/cleannovahomeservices/conscious-creation-website/git/blobs/97822299b8703356f90d237a2bb8a07a870b2271"
+    },
+    {
+      "path": "styles.css",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "a53ea33da84c7ce233863447f10fd51e792426fc",
+      "size": 21916,
+      "url": "https://api.github.com/repos/cleannovahomeservices/conscious-creation-website/git/blobs/a53ea33da84c7ce233863447f10fd51e792426fc"
+    },
+    {
+      "path": "vercel.json",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "20041cad5c1ea981690903878b9eb1edfd3fbad0",
+      "size": 50,
+      "url": "https://api.github.com/repos/cleannovahomeservices/conscious-creation-website/git/blobs/20041cad5c1ea981690903878b9eb1edfd3fbad0"
+    },
+    {
+      "path": "writings.html",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "73a4b6bdd8e58c1151b66b79a3231b19a3bf4953",
+      "size": 5796,
+      "url": "https://api.github.com/repos/cleannovahomeservices/conscious-creation-website/git/blobs/73a4b6bdd8e58c1151b66b79a3231b19a3bf4953"
+    }
+  ],
+  "truncated": false
+}

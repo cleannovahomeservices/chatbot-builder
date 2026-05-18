@@ -49,12 +49,16 @@ export function ExtractorClient({ initialHistory }: { initialHistory: HistoryIte
     setError('');
     setResult(null);
     setLoading(true);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 280_000);
     try {
       const res = await fetch('/api/extract-business', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: url.trim() }),
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
       const data = await res.json();
       if (!res.ok) {
         setError(data.error ?? 'Error al extraer');
@@ -73,8 +77,13 @@ export function ExtractorClient({ initialHistory }: { initialHistory: HistoryIte
         created_at: new Date().toISOString(),
       };
       setHistory([newItem, ...history.slice(0, 19)]);
-    } catch {
-      setError('Error de conexión. Vuelve a intentarlo.');
+    } catch (e) {
+      clearTimeout(timeoutId);
+      if (e instanceof DOMException && e.name === 'AbortError') {
+        setError('La extracción tardó demasiado. El negocio puede tener muchas reseñas — vuelve a intentarlo o prueba con otro.');
+      } else {
+        setError('Error de conexión. Vuelve a intentarlo.');
+      }
     } finally {
       setLoading(false);
     }

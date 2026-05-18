@@ -37,12 +37,16 @@ export function PublicExtractorClient() {
     setResult(null);
     setLimitReached(false);
     setLoading(true);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 280_000);
     try {
       const res = await fetch('/api/extract-business', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: url.trim() }),
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
       const data = await res.json();
       if (!res.ok) {
         if (res.status === 429) setLimitReached(true);
@@ -51,8 +55,13 @@ export function PublicExtractorClient() {
       }
       setResult(data);
       setUrl('');
-    } catch {
-      setError('Error de conexión. Vuelve a intentarlo.');
+    } catch (e) {
+      clearTimeout(timeoutId);
+      if (e instanceof DOMException && e.name === 'AbortError') {
+        setError('La extracción tardó demasiado. Vuelve a intentarlo o prueba con otro negocio.');
+      } else {
+        setError('Error de conexión. Vuelve a intentarlo.');
+      }
     } finally {
       setLoading(false);
     }

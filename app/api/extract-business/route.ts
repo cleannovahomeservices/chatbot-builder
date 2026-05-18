@@ -89,6 +89,31 @@ function isGoogleMapsUrl(url: string): boolean {
   }
 }
 
+async function resolveShortLink(url: string): Promise<string> {
+  try {
+    const u = new URL(url);
+    const host = u.hostname.toLowerCase();
+    if (host !== 'maps.app.goo.gl' && host !== 'goo.gl' && host !== 'g.page') {
+      return url;
+    }
+    const res = await fetch(url, {
+      method: 'GET',
+      redirect: 'follow',
+      signal: AbortSignal.timeout(10_000),
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+    });
+    const finalUrl = res.url;
+    if (finalUrl && finalUrl.includes('google.') && finalUrl.includes('/maps/')) {
+      console.log(`[resolve] ${url} -> ${finalUrl}`);
+      return finalUrl;
+    }
+    return url;
+  } catch (e) {
+    console.error('[resolve] error:', e);
+    return url;
+  }
+}
+
 function getClientIp(request: NextRequest): string {
   const xff = request.headers.get('x-forwarded-for');
   if (xff) return xff.split(',')[0].trim();
@@ -281,7 +306,8 @@ export async function POST(request: NextRequest) {
   const extractionId = created.id as string;
 
   try {
-    const place = await runApifyExtraction(googleUrl);
+    const resolvedUrl = await resolveShortLink(googleUrl);
+    const place = await runApifyExtraction(resolvedUrl);
 
     if (!place) {
       await db.from('business_extractions').update({
