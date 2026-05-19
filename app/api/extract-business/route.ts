@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { getUserPlan } from '@/lib/plans';
+import { checkExtractionLimit } from '@/lib/plans';
 
 export const maxDuration = 300;
 
@@ -10,7 +10,6 @@ const MAX_REVIEWS = 150;
 const MAX_IMAGES = 25;
 
 const ANON_MONTHLY_LIMIT = 2;
-const FREE_MONTHLY_LIMIT = 5;
 
 interface ApifyPlace {
   title?: string;
@@ -127,36 +126,16 @@ function getPeriodStart(): string {
   return new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
 }
 
-async function checkLimits(
-  userId: string | null,
-  ip: string,
-  plan: string,
-): Promise<{ allowed: boolean; reason?: string }> {
+async function checkAnonLimit(ip: string): Promise<{ allowed: boolean; reason?: string }> {
   const db = createAdminClient();
-  const periodStart = getPeriodStart();
-
-  if (!userId) {
-    const { count } = await db
-      .from('business_extractions')
-      .select('id', { count: 'exact', head: true })
-      .is('user_id', null)
-      .eq('ip_address', ip)
-      .gte('created_at', periodStart);
-    if ((count ?? 0) >= ANON_MONTHLY_LIMIT) {
-      return { allowed: false, reason: 'Has alcanzado el límite de 2 extracciones gratis por mes. Crea una cuenta para más.' };
-    }
-    return { allowed: true };
-  }
-
-  if (plan === 'free') {
-    const { count } = await db
-      .from('business_extractions')
-      .select('id', { count: 'exact', head: true })
-      .eq('user_id', userId)
-      .gte('created_at', periodStart);
-    if ((count ?? 0) >= FREE_MONTHLY_LIMIT) {
-      return { allowed: false, reason: `Has alcanzado el límite de ${FREE_MONTHLY_LIMIT} extracciones mensuales del plan gratuito. Mejora a un plan de pago para uso ilimitado.` };
-    }
+  const { count } = await db
+    .from('business_extractions')
+    .select('id', { count: 'exact', head: true })
+    .is('user_id', null)
+    .eq('ip_address', ip)
+    .gte('created_at', getPeriodStart());
+  if ((count ?? 0) >= ANON_MONTHLY_LIMIT) {
+    return { allowed: false, reason: 'Has alcanzado el límite de 2 extracciones gratis por mes. Crea una cuenta para más.' };
   }
   return { allowed: true };
 }
@@ -263,7 +242,6 @@ async function uploadAllImages(
 export async function POST(request: NextRequest) {
   const user = await getSession();
   const ip = getClientIp(request);
-  const plan = user ? await getUserPlan(user.id) : 'free';
 
   let body: { url?: string };
   try {
@@ -280,9 +258,20 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'La URL debe ser de Google Maps (google.com/maps/..., maps.app.goo.gl, etc.)' }, { status: 400 });
   }
 
-  const limitCheck = await checkLimits(user?.id ?? null, ip, plan);
-  if (!limitCheck.allowed) {
-    return NextResponse.json({ error: limitCheck.reason }, { status: 429 });
+  if (!user) {
+    const anonCheck = await checkAnonLimit(ip);
+    if (!anonCheck.allowed) {
+      return NextResponse.json({ error: anonCheck.reason, upgradeRequired: true }, { status: 429 });
+    }
+  } else {
+    const planCheck = await checkExtractionLimit(user.id);
+    if (!planCheck.allowed) {
+      const isFreeTotal = planCheck.plan === 'free';
+      const reason = isFreeTotal
+        ? `Has usado las ${planCheck.limit} extracciones del plan gratuito. Mejora tu plan para más extracciones.`
+        : `Has alcanzado el límite de ${planCheck.limit} extracciones de este mes en tu plan ${planCheck.plan}. Mejora tu plan para más.`;
+      return NextResponse.json({ error: reason, upgradeRequired: true, plan: planCheck.plan, count: planCheck.count, limit: planCheck.limit }, { status: 429 });
+    }
   }
 
   const db = createAdminClient();

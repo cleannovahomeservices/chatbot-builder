@@ -82,6 +82,7 @@ export function BentoPricing({ currentPlan, onChoose, loading }: BentoPricingPro
             {[
               '5 chatbots activos simultáneos',
               '500 mensajes al mes por cuenta',
+              '10 extracciones de Google Maps al mes',
               'Widget personalizable (colores, icono, estilo)',
               'Inyección automática en GitHub',
             ].map((f, i) => (
@@ -113,6 +114,7 @@ export function BentoPricing({ currentPlan, onChoose, loading }: BentoPricingPro
           {[
             '3 chatbots activos',
             '100 mensajes al mes',
+            '5 extracciones de Google Maps al mes',
             'Widget personalizable',
           ].map((f, i) => (
             <li key={i} className="flex items-center gap-3">
@@ -141,6 +143,7 @@ export function BentoPricing({ currentPlan, onChoose, loading }: BentoPricingPro
           {[
             '1 chatbot',
             '20 mensajes (total, una vez)',
+            '2 extracciones de Google Maps',
             'Prueba gratuita sin tarjeta',
           ].map((f, i) => (
             <li key={i} className="flex items-center gap-3">
@@ -170,6 +173,7 @@ export function BentoPricing({ currentPlan, onChoose, loading }: BentoPricingPro
           {[
             'Chatbots ilimitados',
             'Mensajes ilimitados',
+            'Extracciones de Google Maps ilimitadas',
             'Sin restricciones de ningún tipo',
           ].map((f, i) => (
             <li key={i} className="flex items-center gap-3">

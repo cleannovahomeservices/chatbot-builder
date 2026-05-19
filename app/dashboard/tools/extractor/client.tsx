@@ -1,6 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { BentoPricing } from '@/components/ui/bento-pricing';
+import type { PlanName } from '@/lib/plans';
 
 interface HistoryItem {
   id: string;
@@ -25,6 +27,14 @@ interface ExtractionResult {
   hasOpeningHours?: boolean;
 }
 
+interface PlanData {
+  plan: PlanName;
+  planLabel: string;
+  extractionCount: number;
+  extractionLimit: number;
+  canExtract: boolean;
+}
+
 const IconMap = () => (
   <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M12 22s-8-7.5-8-13a8 8 0 0 1 16 0c0 5.5-8 13-8 13z" /><circle cx="12" cy="9" r="3" />
@@ -41,15 +51,121 @@ const IconStar = () => (
   </svg>
 );
 
-export function ExtractorClient({ initialHistory }: { initialHistory: HistoryItem[] }) {
+function PricingModal({ currentPlan, onClose, onChoose, loading }: {
+  currentPlan: PlanName;
+  onClose: () => void;
+  onChoose: (plan: Exclude<PlanName, 'free'>) => void;
+  loading: string | null;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center bg-black/80 px-4 py-8 overflow-y-auto"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className="relative w-full max-w-4xl rounded-2xl border border-white/10 bg-[#0d0d0d] p-6 sm:p-8 my-auto">
+        <button
+          onClick={onClose}
+          className="absolute top-4 right-4 text-white/30 hover:text-white text-xl leading-none"
+        >
+          ✕
+        </button>
+        <div className="mb-6 text-center">
+          <h2 className="text-2xl font-bold">Necesitas más extracciones</h2>
+          <p className="text-white/40 text-sm mt-1">Elige un plan para seguir extrayendo negocios. Sin permanencia, cancela cuando quieras.</p>
+        </div>
+        <BentoPricing currentPlan={currentPlan} onChoose={onChoose} loading={loading} />
+      </div>
+    </div>
+  );
+}
+
+function UsageBanner({ plan, count, limit }: { plan: PlanName; count: number; limit: number }) {
+  const unlimited = limit === -1;
+  const pct = unlimited ? 0 : Math.min((count / limit) * 100, 100);
+  const remaining = unlimited ? Infinity : Math.max(limit - count, 0);
+  const atLimit = !unlimited && count >= limit;
+  const nearLimit = !unlimited && remaining <= 1 && remaining > 0;
+
+  const periodLabel = plan === 'free' ? 'plan gratuito' : 'este mes';
+
+  return (
+    <div className={`rounded-xl border p-4 mt-6 flex flex-col sm:flex-row sm:items-center gap-3 ${
+      atLimit ? 'border-red-500/30 bg-red-950/20' :
+      nearLimit ? 'border-amber-500/30 bg-amber-950/10' :
+      'border-white/10 bg-white/[0.03]'
+    }`}>
+      <div className="flex-1 min-w-0">
+        <div className="flex justify-between text-xs mb-1.5">
+          <span className="text-white/60 font-medium">
+            Extracciones {periodLabel}
+          </span>
+          <span className={atLimit ? 'text-red-400 font-semibold' : nearLimit ? 'text-amber-400' : 'text-white/50'}>
+            {unlimited ? `${count} / ∞` : `${count} / ${limit}`}
+          </span>
+        </div>
+        {!unlimited && (
+          <div className="h-1.5 rounded-full bg-white/10 overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all duration-500 ${
+                atLimit ? 'bg-red-500' : nearLimit ? 'bg-amber-500' : 'bg-violet-500'
+              }`}
+              style={{ width: `${pct}%` }}
+            />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export function ExtractorClient({
+  initialHistory,
+  planData,
+}: {
+  initialHistory: HistoryItem[];
+  planData: PlanData;
+}) {
   const [url, setUrl] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState<ExtractionResult | null>(null);
   const [history, setHistory] = useState(initialHistory);
+  const [extractionCount, setExtractionCount] = useState(planData.extractionCount);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
+
+  const isUnlimited = planData.extractionLimit === -1;
+  const atLimit = !isUnlimited && extractionCount >= planData.extractionLimit;
+
+  // Auto-abrir el popup al cargar la página si ya está al límite
+  useEffect(() => {
+    if (atLimit) setShowUpgradeModal(true);
+  }, [atLimit]);
+
+  async function handleChooseUpgrade(plan: Exclude<PlanName, 'free'>) {
+    setCheckoutLoading(plan);
+    try {
+      const res = await fetch('/api/billing/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plan }),
+      });
+      const json = await res.json();
+      if (json.url) window.location.href = json.url;
+      else setCheckoutLoading(null);
+    } catch {
+      setCheckoutLoading(null);
+    }
+  }
 
   async function handleExtract() {
     if (!url.trim() || loading) return;
+
+    if (atLimit) {
+      setShowUpgradeModal(true);
+      return;
+    }
+
     setError('');
     setResult(null);
     setLoading(true);
@@ -65,11 +181,18 @@ export function ExtractorClient({ initialHistory }: { initialHistory: HistoryIte
       clearTimeout(timeoutId);
       const data = await res.json();
       if (!res.ok) {
+        if (res.status === 429 && data.upgradeRequired) {
+          setExtractionCount(planData.extractionLimit);
+          setShowUpgradeModal(true);
+          setError(data.error ?? 'Has alcanzado el límite de extracciones.');
+          return;
+        }
         setError(data.error ?? 'Error al extraer');
         return;
       }
       setResult(data);
       setUrl('');
+      setExtractionCount(c => c + 1);
 
       const newItem: HistoryItem = {
         id: data.id,
@@ -111,7 +234,9 @@ export function ExtractorClient({ initialHistory }: { initialHistory: HistoryIte
         </div>
       </div>
 
-      <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 sm:p-6 mt-8">
+      <UsageBanner plan={planData.plan} count={extractionCount} limit={planData.extractionLimit} />
+
+      <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 sm:p-6 mt-4">
         <label className="block text-sm font-medium text-white/70 mb-2">
           URL de Google Maps del negocio
         </label>
@@ -128,9 +253,13 @@ export function ExtractorClient({ initialHistory }: { initialHistory: HistoryIte
           <button
             onClick={handleExtract}
             disabled={!url.trim() || loading}
-            className="rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 px-6 py-3 text-sm font-semibold text-white hover:from-violet-500 hover:to-indigo-500 transition disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
+            className={`rounded-xl px-6 py-3 text-sm font-semibold transition disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap ${
+              atLimit
+                ? 'bg-white/10 text-white/70 hover:bg-white/15'
+                : 'bg-gradient-to-r from-violet-600 to-indigo-600 text-white hover:from-violet-500 hover:to-indigo-500'
+            }`}
           >
-            {loading ? 'Extrayendo…' : 'Extraer'}
+            {loading ? 'Extrayendo…' : atLimit ? 'Ampliar plan' : 'Extraer'}
           </button>
         </div>
         <p className="mt-3 text-xs text-white/40">
@@ -138,8 +267,16 @@ export function ExtractorClient({ initialHistory }: { initialHistory: HistoryIte
         </p>
 
         {error && (
-          <div className="mt-4 rounded-xl border border-red-500/30 bg-red-950/30 px-4 py-3 text-sm text-red-300">
-            {error}
+          <div className="mt-4 rounded-xl border border-red-500/30 bg-red-950/30 px-4 py-3 text-sm text-red-300 flex items-center justify-between gap-3">
+            <span>{error}</span>
+            {atLimit && (
+              <button
+                onClick={() => setShowUpgradeModal(true)}
+                className="shrink-0 rounded-lg bg-red-500 hover:bg-red-400 text-white text-xs font-semibold px-3 py-1.5 transition"
+              >
+                Ampliar plan
+              </button>
+            )}
           </div>
         )}
 
@@ -290,6 +427,15 @@ export function ExtractorClient({ initialHistory }: { initialHistory: HistoryIte
           </li>
         </ol>
       </div>
+
+      {showUpgradeModal && (
+        <PricingModal
+          currentPlan={planData.plan}
+          onClose={() => setShowUpgradeModal(false)}
+          onChoose={handleChooseUpgrade}
+          loading={checkoutLoading}
+        />
+      )}
     </div>
   );
 }

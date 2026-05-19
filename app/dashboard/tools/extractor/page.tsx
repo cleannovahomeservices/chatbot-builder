@@ -1,5 +1,6 @@
 import { getSession } from '@/lib/session';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { getUserPlanData } from '@/lib/plans';
 import { redirect } from 'next/navigation';
 import { ExtractorClient } from './client';
 
@@ -21,14 +22,17 @@ export default async function ExtractorPage() {
   if (!user) redirect('/login');
 
   const db = createAdminClient();
-  const { data: history } = await db
-    .from('business_extractions')
-    .select('id, google_url, status, business_data, photo_urls, reviews, created_at')
-    .eq('user_id', user.id)
-    .order('created_at', { ascending: false })
-    .limit(20);
+  const [historyRes, planData] = await Promise.all([
+    db
+      .from('business_extractions')
+      .select('id, google_url, status, business_data, photo_urls, reviews, created_at')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+      .limit(20),
+    getUserPlanData(user.id),
+  ]);
 
-  const past = (history as PastExtraction[] | null) ?? [];
+  const past = (historyRes.data as PastExtraction[] | null) ?? [];
 
-  return <ExtractorClient initialHistory={past} />;
+  return <ExtractorClient initialHistory={past} planData={planData} />;
 }
