@@ -36,6 +36,10 @@ export async function GET(request: NextRequest) {
     options: {
       redirectTo: `${callbackBase}/api/auth/supabase/callback?next=${encodeURIComponent(next)}`,
       skipBrowserRedirect: true,
+      queryParams: {
+        prompt: 'select_account',
+        access_type: 'offline',
+      },
     },
   });
 
