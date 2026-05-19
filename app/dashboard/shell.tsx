@@ -47,7 +47,7 @@ const NAV: Array<{ section: string; items: NavItem[] }> = [
   {
     section: 'Principal',
     items: [
-      { href: '/dashboard', label: 'Mis chatbots', icon: <IconBot />, match: p => p === '/dashboard' },
+      { href: '/dashboard', label: 'Dashboard', icon: <IconBot />, match: p => p === '/dashboard' },
     ],
   },
   {

@@ -643,7 +643,7 @@ export function CreateWizard({
             <button onClick={() => router.push("/dashboard")}
               className="w-full rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 py-4 font-semibold text-white hover:from-violet-500 hover:to-indigo-500 transition cursor-pointer"
             >
-              Ver mis chatbots →
+              Ir al dashboard →
             </button>
           </div>
         )}

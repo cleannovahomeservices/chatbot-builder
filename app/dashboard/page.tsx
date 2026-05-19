@@ -35,7 +35,7 @@ export default async function DashboardPage() {
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-6">
           <div>
-            <h1 className="text-2xl sm:text-3xl font-bold">Mis chatbots</h1>
+            <h1 className="text-2xl sm:text-3xl font-bold">Dashboard</h1>
             <p className="text-white/50 mt-1">Hola, {displayName}</p>
           </div>
           <NewChatbotButton canCreate={planData.canCreateChatbot} plan={planData.plan} />

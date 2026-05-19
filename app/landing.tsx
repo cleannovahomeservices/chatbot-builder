@@ -104,7 +104,7 @@ export function LandingPage({ isLoggedIn, username }: Props) {
               href="/dashboard"
               className="rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 px-3 sm:px-4 py-2 text-sm font-semibold text-white hover:from-violet-500 hover:to-indigo-500 transition whitespace-nowrap"
             >
-              Mis chatbots →
+              Dashboard →
             </a>
           </div>
         ) : (
