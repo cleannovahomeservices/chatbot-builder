@@ -1,3 +1,5 @@
+import type { PhotoMetadata, PhotoType } from './photo-classify';
+
 interface BusinessData {
   title?: string;
   subTitle?: string;
@@ -199,14 +201,102 @@ function pickTopReviews(reviews: ReviewData[]): ReviewData[] {
     .slice(0, 8);
 }
 
+interface PhotoGroup {
+  type: PhotoType;
+  title: string;
+  guidance: string;
+  photos: PhotoMetadata[];
+}
+
+const TYPE_GUIDANCE: Record<PhotoType, { title: string; guidance: string; priority: number }> = {
+  exterior: {
+    title: '🚪 Exterior / Fachada',
+    guidance: 'Úsalas en la sección "Visítanos" o "Cómo llegar". Una puede ir como background del hero (con overlay) si encaja con el tono.',
+    priority: 1,
+  },
+  interior: {
+    title: '🏠 Interior del local',
+    guidance: 'Sección "El espacio" / "Sobre el lugar". Si el negocio depende del ambiente (restaurante, hotel, salón), usa la mejor en el hero.',
+    priority: 2,
+  },
+  producto: {
+    title: '🍽 Productos / Platos',
+    guidance: 'Grid tipo catálogo o "Menú destacado". Para restaurantes: galería masonry. Para tiendas: cards con aspect-ratio uniforme.',
+    priority: 3,
+  },
+  trabajo_terminado: {
+    title: '✅ Trabajos realizados (PRUEBA SOCIAL)',
+    guidance: 'Sección "Trabajos realizados" / "Resultados" / "Antes-después". Son la prueba de que el negocio funciona. Caption breve en cada una. NO mezclar con fotos del local.',
+    priority: 2,
+  },
+  equipo: {
+    title: '👥 Equipo / Personas',
+    guidance: 'Sección "Quiénes somos" o "Conoce al equipo". Aspect-ratio 1:1 o 4:5. Humaniza el negocio.',
+    priority: 4,
+  },
+  ambiente: {
+    title: '🎨 Ambiente / Detalles',
+    guidance: 'Como acentos visuales en transiciones de sección o complementando fotos principales. NO las uses solas — siempre como apoyo.',
+    priority: 5,
+  },
+  menu: {
+    title: '📋 Carta / Lista de precios',
+    guidance: 'NO mostrar la foto de la carta en la web. En su lugar, **extrae los textos visibles y maquétalos** como una sección de precios/servicios real. La carta fotografiada queda fea.',
+    priority: 6,
+  },
+  vehiculo: {
+    title: '🚐 Vehículos / Flota',
+    guidance: 'Solo si el negocio depende de desplazarse (servicios a domicilio, mudanzas, mensajería). Sección "Trabajamos en toda la zona" o footer.',
+    priority: 7,
+  },
+  logo: {
+    title: '🔖 Logo',
+    guidance: '**NO usar como decoración** en el cuerpo de la web. Solo el favicon, el header y el footer si encaja. Si es la única foto disponible, déjala en blanco con un placeholder.',
+    priority: 8,
+  },
+  otro: {
+    title: '📷 Otras',
+    guidance: 'Galería extendida con lightbox al final. Solo si todavía aportan.',
+    priority: 9,
+  },
+};
+
+function groupPhotosByType(metadata: PhotoMetadata[]): PhotoGroup[] {
+  const buckets = new Map<PhotoType, PhotoMetadata[]>();
+  for (const m of metadata) {
+    if (!buckets.has(m.type)) buckets.set(m.type, []);
+    buckets.get(m.type)!.push(m);
+  }
+  const groups: PhotoGroup[] = [];
+  for (const [type, photos] of buckets) {
+    const g = TYPE_GUIDANCE[type];
+    groups.push({ type, title: g.title, guidance: g.guidance, photos });
+  }
+  groups.sort((a, b) => TYPE_GUIDANCE[a.type].priority - TYPE_GUIDANCE[b.type].priority);
+  return groups;
+}
+
+function pickHeroCandidates(metadata: PhotoMetadata[]): PhotoMetadata[] {
+  const explicit = metadata.filter(m => m.heroCandidate && m.quality === 'buena');
+  if (explicit.length > 0) return explicit.slice(0, 3);
+  const fallback = metadata
+    .filter(m => m.quality === 'buena' && ['exterior', 'interior', 'producto', 'trabajo_terminado'].includes(m.type))
+    .slice(0, 3);
+  if (fallback.length > 0) return fallback;
+  return metadata.filter(m => m.quality !== 'mala').slice(0, 1);
+}
+
 export function generatePromptMd(
   business: BusinessData,
   reviews: ReviewData[],
   photoUrls: string[],
+  photoMetadata?: PhotoMetadata[],
 ): string {
   const kind = inferBusinessKind(business);
   const strategy = KIND_STRATEGY[kind];
+  const hasMetadata = !!photoMetadata && photoMetadata.length > 0;
 
+  // Fallback al sistema por orden si no hay metadata (extracciones antiguas)
   const heroPhoto = photoUrls[0];
   const featuredPhotos = photoUrls.slice(1, 7);
   const galleryPhotos = photoUrls.slice(7);
@@ -279,7 +369,55 @@ export function generatePromptMd(
   lines.push('');
 
   // ========== ASIGNACIÓN DE FOTOS ==========
-  if (photoUrls.length > 0) {
+  if (photoUrls.length === 0) {
+    lines.push('## 5. Fotos');
+    lines.push('');
+    lines.push('No hay fotos disponibles para este negocio. No inventes ni uses imágenes placeholder genéricas: en su lugar, refuerza el diseño con tipografía, color y composición. Considera usar iconos coherentes (Lucide o similar) en lugar de imágenes. Si el resultado queda pobre, sugiere al dueño aportar 5-8 fotos profesionales.');
+    lines.push('');
+  } else if (hasMetadata) {
+    // VERSIÓN CON METADATA — fotos clasificadas por Claude Vision
+    lines.push('## 5. Asignación concreta de fotos (clasificadas por IA)');
+    lines.push('');
+    lines.push('Las URLs son permanentes (alojadas en nuestro CDN). Cada foto ha sido clasificada por su tipo y calidad. Las fotos de baja calidad ya están descartadas — todo lo que ves aquí es usable.');
+    lines.push('');
+    lines.push('**Regla de oro:** usa las fotos en la sección que indica cada grupo. NO las muevas a otras secciones. La asignación no es decorativa, es funcional.');
+    lines.push('');
+
+    const heroCandidates = pickHeroCandidates(photoMetadata!);
+    if (heroCandidates.length > 0) {
+      lines.push('### 🌟 Hero (elige UNA de estas — son las más fotogénicas)');
+      lines.push('');
+      lines.push('Estas fotos están marcadas como aptas para portada. Elige la que mejor encaje con el tono del negocio. **Solo una.**');
+      lines.push('');
+      for (const p of heroCandidates) {
+        lines.push(`- ${p.url}${p.description ? ` — _${p.description}_` : ''}`);
+      }
+      lines.push('');
+    }
+
+    const groups = groupPhotosByType(photoMetadata!);
+    for (const group of groups) {
+      lines.push(`### ${group.title} (${group.photos.length})`);
+      lines.push('');
+      lines.push(`> ${group.guidance}`);
+      lines.push('');
+      for (const p of group.photos) {
+        const qualityTag = p.quality === 'regular' ? ' _(calidad media — úsala solo si encaja)_' : '';
+        lines.push(`- ${p.url}${p.description ? ` — ${p.description}` : ''}${qualityTag}`);
+      }
+      lines.push('');
+    }
+
+    lines.push('### ⚠️ Recordatorio sobre el uso de fotos');
+    lines.push('');
+    lines.push('- **No mezcles grupos.** Las fotos de "trabajos terminados" no van en "el espacio". Cada grupo tiene su sección.');
+    lines.push('- **Si un grupo tiene 1-2 fotos**, intégralas dentro del contenido de su sección, no hagas un grid medio vacío.');
+    lines.push('- **Si un grupo tiene 6+ fotos**, haz grid con lightbox y botón "Ver más".');
+    lines.push('- **Logos: nunca como decoración** en mitad de la web. Solo header/favicon/footer.');
+    lines.push('- **Fotos de menú/carta**: extrae el texto y maquétalo. La carta fotografiada queda fea.');
+    lines.push('');
+  } else {
+    // FALLBACK — sin metadata (extracciones antiguas)
     lines.push('## 5. Asignación concreta de fotos');
     lines.push('');
     lines.push('Las URLs son permanentes (alojadas en nuestro CDN), úsalas directamente con `<img>` o `next/image`.');
@@ -315,11 +453,6 @@ export function generatePromptMd(
       }
       lines.push('');
     }
-  } else {
-    lines.push('## 5. Fotos');
-    lines.push('');
-    lines.push('No hay fotos disponibles para este negocio. No inventes ni uses imágenes placeholder genéricas: en su lugar, refuerza el diseño con tipografía, color y composición. Considera usar iconos coherentes (Lucide o similar) en lugar de imágenes.');
-    lines.push('');
   }
 
   // ========== SISTEMA DE DISEÑO ==========

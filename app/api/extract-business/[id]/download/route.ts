@@ -57,13 +57,14 @@ export async function GET(
   const business = extraction.business_data ?? {};
   const reviews = extraction.reviews ?? [];
   const photoUrls: string[] = extraction.photo_urls ?? [];
+  const photoMetadata = extraction.photo_metadata ?? undefined;
 
   const zip = new JSZip();
 
-  const promptMd = generatePromptMd(business, reviews, photoUrls);
+  const promptMd = generatePromptMd(business, reviews, photoUrls, photoMetadata);
   zip.file('prompt.md', promptMd);
 
-  zip.file('data.json', JSON.stringify({ business, reviews, photoUrls }, null, 2));
+  zip.file('data.json', JSON.stringify({ business, reviews, photoUrls, photoMetadata }, null, 2));
 
   if (reviews.length > 0) {
     zip.file('reviews.md', generateReviewsMd(reviews, business.title));
