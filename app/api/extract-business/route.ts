@@ -3,6 +3,8 @@ import { getSession } from '@/lib/session';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { checkExtractionLimit } from '@/lib/plans';
 import { classifyPhotos } from '@/lib/photo-classify';
+import { generateAmbientPhotos } from '@/lib/photo-generate';
+import { inferBusinessKind } from '@/lib/extraction-format';
 
 export const maxDuration = 300;
 
@@ -314,13 +316,6 @@ export async function POST(request: NextRequest) {
 
     const uploadedUrls = await uploadAllImages(rawImageUrls, extractionId);
 
-    // Clasifica las fotos con Claude Vision para luego curar el prompt y filtrar las feas
-    const category = place.categoryName ?? place.categories?.[0] ?? '';
-    const allMetadata = uploadedUrls.length > 0 ? await classifyPhotos(uploadedUrls, category) : [];
-    const goodMetadata = allMetadata.filter(m => m.quality !== 'mala');
-    const goodUrls = goodMetadata.map(m => m.url);
-    console.log(`[classify] ${uploadedUrls.length} fotos analizadas, ${allMetadata.length - goodMetadata.length} descartadas por calidad mala`);
-
     const businessData = {
       title: place.title,
       subTitle: place.subTitle,
@@ -364,12 +359,25 @@ export async function POST(request: NextRequest) {
       responseFromOwnerDate: r.responseFromOwnerDate,
     }));
 
+    // Classify (Claude Vision) + Generate (OpenAI gpt-image-1) corren en paralelo
+    const category = place.categoryName ?? place.categories?.[0] ?? '';
+    const kind = inferBusinessKind(businessData);
+    const [classified, generated] = await Promise.all([
+      uploadedUrls.length > 0 ? classifyPhotos(uploadedUrls, category) : Promise.resolve([]),
+      generateAmbientPhotos(kind, businessData.title ?? '', businessData.city, extractionId),
+    ]);
+
+    const realGood = classified.filter(m => m.quality !== 'mala');
+    const allMetadata = [...realGood, ...generated];
+    const allUrls = allMetadata.map(m => m.url);
+    console.log(`[photos] reales: ${classified.length} (${realGood.length} usables, ${classified.length - realGood.length} descartadas), generadas: ${generated.length}`);
+
     await db.from('business_extractions').update({
       status: 'completed',
       business_data: businessData,
       reviews: reviewsData,
-      photo_urls: goodUrls,
-      photo_metadata: goodMetadata,
+      photo_urls: allUrls,
+      photo_metadata: allMetadata,
       completed_at: new Date().toISOString(),
     }).eq('id', extractionId);
 
@@ -381,7 +389,7 @@ export async function POST(request: NextRequest) {
       website: businessData.website,
       categoryName: businessData.categoryName,
       reviewsCount: reviewsData.length,
-      photosCount: goodUrls.length,
+      photosCount: allUrls.length,
       totalScore: businessData.totalScore,
       hasOpeningHours: (businessData.openingHours?.length ?? 0) > 0,
     });

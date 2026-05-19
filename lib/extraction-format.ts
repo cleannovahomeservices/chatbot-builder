@@ -43,7 +43,7 @@ interface ReviewData {
   responseFromOwnerDate?: string | null;
 }
 
-type BusinessKind =
+export type BusinessKind =
   | 'food'        // restaurante, café, bar, panadería
   | 'lodging'    // hotel, casa rural, hostal, apartamento turístico
   | 'beauty'     // peluquería, barbería, salón de uñas, spa, estética
@@ -57,7 +57,7 @@ type BusinessKind =
   | 'event'      // sala, salón de bodas, fotógrafo
   | 'generic';
 
-function inferBusinessKind(business: BusinessData): BusinessKind {
+export function inferBusinessKind(business: BusinessData): BusinessKind {
   const haystack = [
     business.categoryName ?? '',
     ...(business.categories ?? []),
@@ -286,6 +286,31 @@ function pickHeroCandidates(metadata: PhotoMetadata[]): PhotoMetadata[] {
   return metadata.filter(m => m.quality !== 'mala').slice(0, 1);
 }
 
+// Curaduría extrema: máximo 6 fotos reales, solo las buenas, priorizando por tipo y heroCandidate
+const REAL_TYPE_PRIORITY: Record<PhotoType, number> = {
+  trabajo_terminado: 10,
+  producto: 9,
+  equipo: 8,
+  interior: 7,
+  exterior: 6,
+  ambiente: 4,
+  vehiculo: 3,
+  menu: 2,
+  otro: 1,
+  logo: 0,
+};
+
+function curateRealPhotos(metadata: PhotoMetadata[], maxCount = 6): PhotoMetadata[] {
+  const goodOnly = metadata.filter(m => m.quality === 'buena' && !m.generated);
+  return goodOnly
+    .slice()
+    .sort((a, b) => {
+      if (a.heroCandidate !== b.heroCandidate) return a.heroCandidate ? -1 : 1;
+      return REAL_TYPE_PRIORITY[b.type] - REAL_TYPE_PRIORITY[a.type];
+    })
+    .slice(0, maxCount);
+}
+
 export function generatePromptMd(
   business: BusinessData,
   reviews: ReviewData[],
@@ -375,46 +400,91 @@ export function generatePromptMd(
     lines.push('No hay fotos disponibles para este negocio. No inventes ni uses imágenes placeholder genéricas: en su lugar, refuerza el diseño con tipografía, color y composición. Considera usar iconos coherentes (Lucide o similar) en lugar de imágenes. Si el resultado queda pobre, sugiere al dueño aportar 5-8 fotos profesionales.');
     lines.push('');
   } else if (hasMetadata) {
-    // VERSIÓN CON METADATA — fotos clasificadas por Claude Vision
-    lines.push('## 5. Asignación concreta de fotos (clasificadas por IA)');
+    // VERSIÓN CON METADATA — fotos clasificadas + curadas + (opcional) generadas con IA
+    const realCurated = curateRealPhotos(photoMetadata!, 6);
+    const generated = photoMetadata!.filter(m => m.generated);
+    const heroGenerated = generated.find(m => m.slot === 'hero');
+    const sectionGenerated = generated.find(m => m.slot === 'ambient_section');
+    const footerGenerated = generated.find(m => m.slot === 'ambient_footer');
+
+    lines.push('## 5. Fotos: REALES (prueba social) vs GENERADAS por IA (ambientales)');
     lines.push('');
-    lines.push('Las URLs son permanentes (alojadas en nuestro CDN). Cada foto ha sido clasificada por su tipo y calidad. Las fotos de baja calidad ya están descartadas — todo lo que ves aquí es usable.');
+    lines.push('Tienes DOS tipos de fotos. **Es crítico que no las mezcles.**');
     lines.push('');
-    lines.push('**Regla de oro:** usa las fotos en la sección que indica cada grupo. NO las muevas a otras secciones. La asignación no es decorativa, es funcional.');
+    lines.push('| Tipo | Origen | Función | Dónde usarlas |');
+    lines.push('|---|---|---|---|');
+    lines.push(`| **Fotos reales** del negocio | Google Maps (curadas) | Prueba social: demuestran que el negocio existe y trabaja | Solo en secciones de "trabajos realizados", "productos reales", "equipo", "el espacio". NUNCA como hero genérico ni decoración. |`);
+    lines.push(`| **Fotos generadas con IA** | OpenAI gpt-image-1 | Aportan coherencia visual y atmósfera | Solo como hero ambiental, background de secciones decorativas, footer. NUNCA como prueba de "esto es nuestro trabajo". |`);
+    lines.push('');
+    lines.push('Las URLs son permanentes (CDN nuestro), úsalas con `<img>` o `next/image`.');
     lines.push('');
 
-    const heroCandidates = pickHeroCandidates(photoMetadata!);
-    if (heroCandidates.length > 0) {
-      lines.push('### 🌟 Hero (elige UNA de estas — son las más fotogénicas)');
+    // ---------- Fotos generadas (ambientales) ----------
+    if (generated.length > 0) {
+      lines.push('### 🎨 Fotos generadas con IA — para HERO y BACKGROUNDS');
       lines.push('');
-      lines.push('Estas fotos están marcadas como aptas para portada. Elige la que mejor encaje con el tono del negocio. **Solo una.**');
+      lines.push('Estas 3 imágenes están generadas con IA específicamente para este negocio. Son coherentes entre sí y aportan el "look" de la web. Úsalas SIEMPRE — son el eje visual.');
       lines.push('');
-      for (const p of heroCandidates) {
-        lines.push(`- ${p.url}${p.description ? ` — _${p.description}_` : ''}`);
+      if (heroGenerated) {
+        lines.push(`- **Hero / portada (16:9)** — usar como background del hero a pantalla completa con overlay oscuro 30-50% para que destaque el título:`);
+        lines.push(`  - ${heroGenerated.url}`);
+        lines.push('');
       }
+      if (sectionGenerated) {
+        lines.push(`- **Background de sección secundaria (1:1)** — para sección "Sobre nosotros" / "Nuestros valores" / "Por qué elegirnos", como imagen lateral o detalle visual:`);
+        lines.push(`  - ${sectionGenerated.url}`);
+        lines.push('');
+      }
+      if (footerGenerated) {
+        lines.push(`- **Background del CTA final / footer (16:9)** — banner final antes del footer, con CTA grande encima:`);
+        lines.push(`  - ${footerGenerated.url}`);
+        lines.push('');
+      }
+      lines.push('⚠️ Estas fotos son ambientales, NO muestran el negocio real. **Nunca** las uses con captions tipo "Foto de nuestra tienda" o "Nuestros trabajos". Son recursos visuales puros.');
       lines.push('');
     }
 
-    const groups = groupPhotosByType(photoMetadata!);
-    for (const group of groups) {
-      lines.push(`### ${group.title} (${group.photos.length})`);
+    // ---------- Fotos reales (curadas, máx 6) ----------
+    if (realCurated.length === 0) {
+      lines.push('### 📸 Fotos reales del negocio');
       lines.push('');
-      lines.push(`> ${group.guidance}`);
+      lines.push('Tras filtrar las fotos de Google Maps por calidad, **no hay ninguna foto real usable**. Resultado: no incluyas sección de galería real ni de "trabajos realizados". Las reseñas, la puntuación y los datos de contacto serán toda la prueba social. Compensa el espacio visual con las imágenes generadas y un buen sistema tipográfico.');
       lines.push('');
-      for (const p of group.photos) {
-        const qualityTag = p.quality === 'regular' ? ' _(calidad media — úsala solo si encaja)_' : '';
-        lines.push(`- ${p.url}${p.description ? ` — ${p.description}` : ''}${qualityTag}`);
+    } else if (realCurated.length < 3) {
+      lines.push(`### 📸 Fotos reales del negocio (solo ${realCurated.length} usables)`);
+      lines.push('');
+      lines.push('Hay pocas fotos reales utilizables. **NO hagas una galería con menos de 3 fotos** — queda vacía. En su lugar, intégralas individualmente como acentos dentro del contenido (1 foto al lado del bloque "sobre nosotros", 1 foto en la sección de testimonios).');
+      lines.push('');
+      for (const p of realCurated) {
+        lines.push(`- ${p.url} — _${p.description || 'foto del negocio'}_ (tipo: ${p.type})`);
       }
       lines.push('');
+    } else {
+      lines.push(`### 📸 Fotos reales del negocio (${realCurated.length} curadas — las mejores)`);
+      lines.push('');
+      lines.push('Estas son las **únicas** fotos reales que debes usar (ya filtramos las que no eran usables). Úsalas en una sola sección de prueba social, con tratamiento visual uniforme (mismo aspect-ratio, mismo border-radius, opcionalmente un sutil filtro o overlay para unificar look).');
+      lines.push('');
+      // Agrupar por tipo (solo las curadas)
+      const groups = groupPhotosByType(realCurated);
+      for (const group of groups) {
+        lines.push(`**${group.title}** (${group.photos.length}):`);
+        lines.push('');
+        lines.push(`> ${group.guidance}`);
+        lines.push('');
+        for (const p of group.photos) {
+          lines.push(`- ${p.url} — ${p.description || 'foto del negocio'}`);
+        }
+        lines.push('');
+      }
     }
 
-    lines.push('### ⚠️ Recordatorio sobre el uso de fotos');
+    lines.push('### ⚠️ Reglas críticas sobre fotos');
     lines.push('');
-    lines.push('- **No mezcles grupos.** Las fotos de "trabajos terminados" no van en "el espacio". Cada grupo tiene su sección.');
-    lines.push('- **Si un grupo tiene 1-2 fotos**, intégralas dentro del contenido de su sección, no hagas un grid medio vacío.');
-    lines.push('- **Si un grupo tiene 6+ fotos**, haz grid con lightbox y botón "Ver más".');
-    lines.push('- **Logos: nunca como decoración** en mitad de la web. Solo header/favicon/footer.');
-    lines.push('- **Fotos de menú/carta**: extrae el texto y maquétalo. La carta fotografiada queda fea.');
+    lines.push('- **NUNCA mezcles reales con generadas en el mismo grid.** Las generadas tienen estética de IA editorial, las reales tienen ruido de móvil real. Mezclarlas grita "AI slop".');
+    lines.push('- **Reales → prueba social.** Generadas → ambiente y atmósfera.');
+    lines.push('- **Tratamiento visual idéntico** en todas las fotos del mismo grid: mismo aspect-ratio, mismo border-radius, misma sombra. Considera aplicar un sutil filtro de color uniforme (saturación ligeramente reducida) a las reales para unificarlas.');
+    lines.push('- **Logos del negocio → solo favicon/header.** Nunca como decoración.');
+    lines.push('- **Fotos de menú/carta → transcribe el texto** y maquétalo. Nunca muestres la carta fotografiada.');
     lines.push('');
   } else {
     // FALLBACK — sin metadata (extracciones antiguas)
@@ -472,6 +542,17 @@ export function generatePromptMd(
   lines.push('- **Animaciones**: scroll-triggered con Framer Motion o CSS `@starting-style`. Fade-up suave (20px de translate, 600ms). Nada exagerado.');
   lines.push('- **Mobile-first** real: diseña para móvil primero y escala. El menú móvil es hamburguesa con overlay.');
   lines.push('- **Accesibilidad**: contraste AA mínimo, todos los botones con label, formularios con labels visibles.');
+  lines.push('');
+  lines.push('### Tratamiento visual uniforme de fotos (OBLIGATORIO)');
+  lines.push('');
+  lines.push('Las fotos reales vienen de orígenes mixtos. Para que no rompan la coherencia:');
+  lines.push('');
+  lines.push('- **TODAS las fotos del mismo grid** llevan: mismo `aspect-ratio`, `object-fit: cover`, mismo `border-radius`, misma sombra (o ninguna).');
+  lines.push('- **Aplica un filtro CSS sutil** a las fotos reales (no a las generadas) para unificar paletas: `filter: saturate(0.92) contrast(1.02);` o un overlay de color de marca al 8% de opacidad. Pruébalo y comprueba que no las hace feas.');
+  lines.push('- **Fotos generadas con IA**: van sin filtros, son las que marcan el look.');
+  lines.push('- **NO mezcles fotos verticales y horizontales** en el mismo grid: fuerza un aspect-ratio y deja que `object-cover` recorte.');
+  lines.push('- **Hover sutil**: zoom 1.03 con transición 400ms, opcional un overlay oscuro al 10%. Nada exagerado.');
+  lines.push('- **Lightbox**: si hay más de 4 fotos en un grid, abre lightbox al click. Si hay 1-3, no es necesario.');
   lines.push('');
 
   // ========== COPY ==========

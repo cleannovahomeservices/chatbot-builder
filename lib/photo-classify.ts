@@ -20,6 +20,8 @@ export interface PhotoMetadata {
   quality: PhotoQuality;
   heroCandidate: boolean;
   description: string;
+  generated?: boolean;
+  slot?: 'hero' | 'ambient_section' | 'ambient_footer';
 }
 
 const VALID_TYPES: PhotoType[] = [
