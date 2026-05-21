@@ -2,6 +2,8 @@ import { getSession } from '@/lib/session';
 import { redirect } from 'next/navigation';
 import { getUserPlanData, PLAN_LABELS, PLAN_PRICES } from '@/lib/plans';
 import { SettingsForm } from './settings-form';
+import { GithubSection } from './github-section';
+import { Suspense } from 'react';
 
 export default async function SettingsPage() {
   const user = await getSession();
@@ -41,18 +43,12 @@ export default async function SettingsPage() {
             <dt className="text-white/50">Método de acceso</dt>
             <dd className="text-white">{authMethod}</dd>
           </div>
-          <div className="flex items-center justify-between border-b border-white/5 pb-3">
-            <dt className="text-white/50">GitHub</dt>
-            <dd>
-              {user.github_access_token ? (
-                <span className="text-emerald-400">Conectado{user.github_username ? ` (@${user.github_username})` : ''}</span>
-              ) : (
-                <a href="/api/auth/github?next=/dashboard/settings" className="text-violet-400 hover:text-violet-300">
-                  Conectar →
-                </a>
-              )}
-            </dd>
-          </div>
+          <Suspense fallback={null}>
+            <GithubSection
+              connected={!!user.github_access_token}
+              username={user.github_username ?? null}
+            />
+          </Suspense>
           <div className="flex items-center justify-between">
             <dt className="text-white/50">Vercel</dt>
             <dd>

@@ -37,9 +37,12 @@ export async function GET(request: NextRequest) {
     github_access_token: null,
     github_id: null,
     github_username: null,
+    github_email: null,
+    github_avatar_url: null,
   }).eq('id', user.id);
 
-  // Redirect to GitHub OAuth for a fresh authorization
-  const next = `/api/auth/github?force=true&next=${encodeURIComponent('/dashboard')}`;
-  return NextResponse.redirect(`${appUrl}${next}`);
+  // Redirect back to settings with a flag so the UI can guide the user
+  // (GitHub has no `prompt=select_account`, so the user must log out of github.com
+  // manually before connecting a different account)
+  return NextResponse.redirect(`${appUrl}/dashboard/settings?disconnected=github`);
 }
