@@ -5,6 +5,17 @@ import type Stripe from 'stripe';
 
 export const config = { api: { bodyParser: false } };
 
+// Stripe API 2026-04-22.dahlia moved current_period_end from Subscription to SubscriptionItem.
+// Fall back to the legacy top-level field for safety across versions.
+function getPeriodEnd(subscription: Stripe.Subscription): Date | null {
+  const item = subscription.items?.data?.[0] as unknown as { current_period_end?: number } | undefined;
+  const legacy = (subscription as unknown as { current_period_end?: number }).current_period_end;
+  const ts = item?.current_period_end ?? legacy;
+  if (!ts || !Number.isFinite(ts)) return null;
+  const d = new Date(ts * 1000);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
 async function upsertSubscription(
   db: ReturnType<typeof createAdminClient>,
   userId: string,
@@ -58,7 +69,7 @@ export async function POST(request: NextRequest) {
 
       const subscription = await stripe.subscriptions.retrieve(session.subscription as string);
       const priceId = subscription.items.data[0]?.price.id ?? null;
-      const periodEnd = new Date((subscription as unknown as { current_period_end: number }).current_period_end * 1000);
+      const periodEnd = getPeriodEnd(subscription);
 
       await upsertSubscription(db, userId, plan, session.customer as string, subscription.id, priceId, 'active', periodEnd);
       break;
@@ -73,7 +84,7 @@ export async function POST(request: NextRequest) {
       const plan = priceId ? getPlanFromPriceId(priceId) : null;
       if (!plan) break;
 
-      const periodEnd = new Date((subscription as unknown as { current_period_end: number }).current_period_end * 1000);
+      const periodEnd = getPeriodEnd(subscription);
       await upsertSubscription(db, userId, plan, subscription.customer as string, subscription.id, priceId, subscription.status, periodEnd);
       break;
     }
