@@ -25,6 +25,7 @@ async function upsertSubscription(
   priceId: string | null,
   status: string,
   periodEnd: Date | null,
+  cancelAt: Date | null,
 ) {
   await Promise.all([
     db.from('users').update({ plan, plan_expires_at: periodEnd?.toISOString() ?? null }).eq('id', userId),
@@ -37,11 +38,18 @@ async function upsertSubscription(
         plan,
         status,
         current_period_end: periodEnd?.toISOString() ?? null,
+        cancel_at: cancelAt?.toISOString() ?? null,
         updated_at: new Date().toISOString(),
       },
       { onConflict: 'user_id' }
     ),
   ]);
+}
+
+function getCancelAt(subscription: Stripe.Subscription, periodEnd: Date | null): Date | null {
+  if (subscription.cancel_at) return new Date(subscription.cancel_at * 1000);
+  if (subscription.cancel_at_period_end) return periodEnd;
+  return null;
 }
 
 export async function POST(request: NextRequest) {
@@ -70,8 +78,9 @@ export async function POST(request: NextRequest) {
       const subscription = await stripe.subscriptions.retrieve(session.subscription as string);
       const priceId = subscription.items.data[0]?.price.id ?? null;
       const periodEnd = getPeriodEnd(subscription);
+      const cancelAt = getCancelAt(subscription, periodEnd);
 
-      await upsertSubscription(db, userId, plan, session.customer as string, subscription.id, priceId, 'active', periodEnd);
+      await upsertSubscription(db, userId, plan, session.customer as string, subscription.id, priceId, 'active', periodEnd, cancelAt);
       break;
     }
 
@@ -85,7 +94,8 @@ export async function POST(request: NextRequest) {
       if (!plan) break;
 
       const periodEnd = getPeriodEnd(subscription);
-      await upsertSubscription(db, userId, plan, subscription.customer as string, subscription.id, priceId, subscription.status, periodEnd);
+      const cancelAt = getCancelAt(subscription, periodEnd);
+      await upsertSubscription(db, userId, plan, subscription.customer as string, subscription.id, priceId, subscription.status, periodEnd, cancelAt);
       break;
     }
 
@@ -94,7 +104,7 @@ export async function POST(request: NextRequest) {
       const userId = subscription.metadata?.user_id;
       if (!userId) break;
 
-      await upsertSubscription(db, userId, 'free', subscription.customer as string, subscription.id, null, 'canceled', null);
+      await upsertSubscription(db, userId, 'free', subscription.customer as string, subscription.id, null, 'canceled', null, null);
       break;
     }
 

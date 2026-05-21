@@ -125,10 +125,11 @@ export async function getUserPlanData(userId: string) {
   const plan = await getUserPlan(userId);
   const limits = PLAN_LIMITS[plan];
 
-  const [messageCount, chatbotCountResult, extractionCount] = await Promise.all([
+  const [messageCount, chatbotCountResult, extractionCount, subResult] = await Promise.all([
     getMessageCount(userId, plan),
     db.from('chatbots').select('id', { count: 'exact', head: true }).eq('user_id', userId),
     getExtractionCount(userId, plan),
+    db.from('subscriptions').select('cancel_at, current_period_end, status').eq('user_id', userId).maybeSingle(),
   ]);
 
   const chatbotCount = chatbotCountResult.count ?? 0;
@@ -148,5 +149,8 @@ export async function getUserPlanData(userId: string) {
     canCreateChatbot: limits.chatbots === -1 || chatbotCount < limits.chatbots,
     canSendMessage: limits.messages === -1 || messageCount < limits.messages,
     canExtract: limits.extractions === -1 || extractionCount < limits.extractions,
+    cancelAt: subResult.data?.cancel_at ?? null,
+    currentPeriodEnd: subResult.data?.current_period_end ?? null,
+    subscriptionStatus: subResult.data?.status ?? null,
   };
 }

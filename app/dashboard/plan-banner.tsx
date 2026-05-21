@@ -14,6 +14,57 @@ interface PlanData {
   periodLabel: string;
   canCreateChatbot: boolean;
   canSendMessage: boolean;
+  cancelAt?: string | null;
+  currentPeriodEnd?: string | null;
+  subscriptionStatus?: string | null;
+}
+
+function formatDateEs(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' });
+}
+
+function CancellationBanner({ cancelAt, planLabel, onReactivated }: {
+  cancelAt: string;
+  planLabel: string;
+  onReactivated: () => void;
+}) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleReactivate() {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/billing/reactivate', { method: 'POST' });
+      if (!res.ok) throw new Error('No se pudo reactivar');
+      onReactivated();
+    } catch {
+      setError('No se pudo reactivar. Intenta de nuevo.');
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-amber-500/30 bg-amber-950/20 px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+      <div>
+        <p className="text-sm font-semibold text-amber-300">
+          Tu plan {planLabel} termina el {formatDateEs(cancelAt)}
+        </p>
+        <p className="text-xs text-white/40 mt-0.5">
+          Después pasarás al plan Gratuito automáticamente. No se te volverá a cobrar.
+          {error && <span className="text-red-400 ml-2">{error}</span>}
+        </p>
+      </div>
+      <button
+        onClick={handleReactivate}
+        disabled={loading}
+        className="shrink-0 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/30 text-amber-300 text-xs font-semibold px-3 py-2 transition disabled:opacity-50"
+      >
+        {loading ? 'Reactivando…' : 'Reactivar'}
+      </button>
+    </div>
+  );
 }
 
 const PLAN_COLORS: Record<PlanName, string> = {
@@ -156,6 +207,15 @@ export function PlanBanner({ data }: { data: PlanData }) {
 
   return (
     <>
+      {/* Aviso de cancelación programada */}
+      {data.cancelAt && data.plan !== 'free' && (
+        <CancellationBanner
+          cancelAt={data.cancelAt}
+          planLabel={data.planLabel}
+          onReactivated={() => window.location.reload()}
+        />
+      )}
+
       {/* Aviso de mensajes bajos */}
       <MessagesWarning
         used={data.messageCount}
