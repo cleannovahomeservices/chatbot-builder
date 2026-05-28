@@ -66,7 +66,6 @@ export function CreateWizard({
 }: {
   initialMode: string;
   initialInput: string;
-  initialVercel?: boolean;
 }) {
   const router = useRouter();
   const [step, setStep] = useState<Step>(initialInput.trim() ? "generating" : "input");

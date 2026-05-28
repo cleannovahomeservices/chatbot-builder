@@ -2,7 +2,7 @@ import { cookies } from 'next/headers';
 import { CreateWizard } from './wizard';
 
 interface Props {
-  searchParams: Promise<{ vercel?: string; mode?: string; input?: string }>;
+  searchParams: Promise<{ mode?: string; input?: string }>;
 }
 
 export default async function CreatePage({ searchParams }: Props) {
@@ -19,7 +19,6 @@ export default async function CreatePage({ searchParams }: Props) {
     <CreateWizard
       initialMode={mode}
       initialInput={input}
-      initialVercel={sp.vercel === '1'}
     />
   );
 }

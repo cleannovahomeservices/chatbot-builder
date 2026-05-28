@@ -49,18 +49,6 @@ export default async function SettingsPage() {
               username={user.github_username ?? null}
             />
           </Suspense>
-          <div className="flex items-center justify-between">
-            <dt className="text-white/50">Vercel</dt>
-            <dd>
-              {user.vercel_access_token ? (
-                <span className="text-emerald-400">Conectado</span>
-              ) : (
-                <a href="/api/auth/vercel" className="text-violet-400 hover:text-violet-300">
-                  Conectar →
-                </a>
-              )}
-            </dd>
-          </div>
         </dl>
       </section>
 
