@@ -1,6 +1,8 @@
 import Anthropic from '@anthropic-ai/sdk';
+import OpenAI from 'openai';
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const openaiPrompts = new OpenAI({ apiKey: process.env.OPENAI_API_KEY_PROMPTS });
 
 export async function patchCspInFile(content: string, filename: string, proxyDomain: string): Promise<string | null> {
   const msg = await client.messages.create({
@@ -31,13 +33,15 @@ Return ONLY the file content or NO_CSP. No markdown fences, no explanation. Pres
 }
 
 export async function generateSystemPrompt(input: string): Promise<string> {
-
-  const msg = await client.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 6000,
-    system:
-      'Eres un experto en crear system prompts para chatbots de atención al cliente. Creas prompts concretos que incluyen la información real del negocio, no frases genéricas.',
+  const response = await openaiPrompts.chat.completions.create({
+    model: 'gpt-5-mini',
+    reasoning_effort: 'low',
     messages: [
+      {
+        role: 'system',
+        content:
+          'Eres un experto en crear system prompts para chatbots de atención al cliente. Creas prompts concretos que incluyen la información real del negocio, no frases genéricas.',
+      },
       {
         role: 'user',
         content: `Analiza el siguiente contenido de un negocio y crea un system prompt completo para su chatbot de atención al cliente.
@@ -82,7 +86,7 @@ Devuelve ÚNICAMENTE el system prompt listo para usar, sin explicaciones ni text
     ],
   });
 
-  const block = msg.content[0];
-  if (block.type !== 'text') throw new Error('Unexpected response type from Claude');
-  return block.text;
+  const text = response.choices[0]?.message?.content;
+  if (!text) throw new Error('Empty response from OpenAI');
+  return text;
 }
