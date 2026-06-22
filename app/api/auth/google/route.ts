@@ -1,57 +1,49 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerClient } from '@supabase/ssr';
+import crypto from 'crypto';
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const mode = searchParams.get('mode');
   const input = searchParams.get('input');
-  const nextParam = searchParams.get('next');
+  const rawNext = searchParams.get('next') ?? '';
+  const next = rawNext.startsWith('/') ? rawNext : '';
   const appUrl = new URL(request.url).origin;
 
-  // Determine where to send the user after login
-  const next = nextParam
-    ? nextParam
+  const state = crypto.randomBytes(16).toString('hex');
+  const callbackBase = process.env.NEXT_PUBLIC_APP_URL || process.env.APP_BASE_URL || appUrl;
+  const redirectUri = `${callbackBase}/api/auth/google/callback`;
+
+  const params = new URLSearchParams({
+    client_id: process.env.GOOGLE_CLIENT_ID!,
+    redirect_uri: redirectUri,
+    response_type: 'code',
+    scope: 'openid email profile',
+    prompt: 'select_account',
+    access_type: 'offline',
+    state,
+  });
+
+  const redirectTarget = next
+    ? `${appUrl}${next}`
     : mode && input
-    ? `/create?mode=${mode}&input=${encodeURIComponent(input)}`
-    : '/dashboard';
+    ? `${appUrl}/create?mode=${mode}&input=${encodeURIComponent(input)}`
+    : `${appUrl}/dashboard`;
 
-  const cookieJar: { name: string; value: string; options: Record<string, unknown> }[] = [];
+  const cookieDomain = process.env.NODE_ENV === 'production' ? '.botluma.com' : undefined;
+  const cookieOpts = {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax' as const,
+    maxAge: 600,
+    path: '/',
+    domain: cookieDomain,
+  };
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll: () => request.cookies.getAll(),
-        setAll: (cookiesToSet) => {
-          cookiesToSet.forEach((c) => cookieJar.push(c));
-        },
-      },
-    }
+  const response = NextResponse.redirect(
+    `https://accounts.google.com/o/oauth2/v2/auth?${params}`
   );
-
-  const callbackBase = process.env.APP_BASE_URL || appUrl;
-  const { data, error } = await supabase.auth.signInWithOAuth({
-    provider: 'google',
-    options: {
-      redirectTo: `${callbackBase}/api/auth/supabase/callback?next=${encodeURIComponent(next)}`,
-      skipBrowserRedirect: true,
-      queryParams: {
-        prompt: 'select_account',
-        access_type: 'offline',
-      },
-    },
-  });
-
-  if (error || !data.url) {
-    return NextResponse.redirect(`${appUrl}/?error=auth_failed`);
-  }
-
-  const response = NextResponse.redirect(data.url);
-
-  cookieJar.forEach(({ name, value, options }) => {
-    response.cookies.set(name, value, options as Parameters<typeof response.cookies.set>[2]);
-  });
+  response.cookies.set('google_oauth_state', state, cookieOpts);
+  response.cookies.set('post_auth_redirect', redirectTarget, cookieOpts);
 
   return response;
 }
