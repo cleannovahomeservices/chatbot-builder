@@ -197,8 +197,8 @@ export function LoginForm({ mode, input }: LoginFormProps) {
 
         <p className="mt-6 text-center text-xs text-white/20">
           Al continuar aceptas nuestros{" "}
-          <u className="cursor-pointer hover:text-white/40 transition">Términos</u> y{" "}
-          <u className="cursor-pointer hover:text-white/40 transition">Privacidad</u>.
+          <a href="/terms" target="_blank" rel="noopener noreferrer" className="underline hover:text-white/40 transition">Términos</a> y{" "}
+          <a href="/privacy" target="_blank" rel="noopener noreferrer" className="underline hover:text-white/40 transition">Privacidad</a>.
         </p>
       </div>
     </main>
