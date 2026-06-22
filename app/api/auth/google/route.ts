@@ -10,7 +10,7 @@ export async function GET(request: NextRequest) {
   const appUrl = new URL(request.url).origin;
 
   const state = crypto.randomBytes(16).toString('hex');
-  const callbackBase = process.env.NEXT_PUBLIC_APP_URL || process.env.APP_BASE_URL || appUrl;
+  const callbackBase = process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || appUrl;
   const redirectUri = `${callbackBase}/api/auth/google/callback`;
 
   const params = new URLSearchParams({
