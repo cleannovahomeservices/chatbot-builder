@@ -21,7 +21,7 @@ interface Props {
 }
 
 export function LandingPage({ isLoggedIn, username }: Props) {
-  const [mode, setMode] = useState<"describe" | "url">("describe");
+  const [mode, setMode] = useState<"describe" | "url" | "pdf">("describe");
   const [description, setDescription] = useState("");
   const [url, setUrl] = useState("");
   const [showModal, setShowModal] = useState(false);
@@ -79,8 +79,10 @@ export function LandingPage({ isLoggedIn, username }: Props) {
   }
 
   function handleCTA() {
-    const input = mode === "describe" ? description : url;
-    if (!input.trim()) return;
+    // En modo PDF no hay texto que pasar: el archivo se sube ya en /create,
+    // porque no se puede mandar por query param.
+    const input = mode === "pdf" ? "" : mode === "describe" ? description : url;
+    if (mode !== "pdf" && !input.trim()) return;
     if (isLoggedIn) {
       const params = new URLSearchParams({ mode, input });
       window.location.href = `/create?${params}`;
@@ -133,7 +135,7 @@ export function LandingPage({ isLoggedIn, username }: Props) {
         </h1>
 
         <p className="mt-5 max-w-xl text-center text-lg text-white/50">
-          Describe tu negocio o pega tu web — nosotros nos encargamos del resto.
+          Describe tu negocio, pega tu web o sube tus PDFs — nosotros nos encargamos del resto.
         </p>
 
         {/* Card */}
@@ -149,7 +151,13 @@ export function LandingPage({ isLoggedIn, username }: Props) {
               onClick={() => setMode("url")}
               className={`flex-1 rounded-lg py-2.5 text-sm font-medium transition-all duration-200 cursor-pointer ${mode === "url" ? "bg-white text-black shadow" : "text-white/50 hover:text-white"}`}
             >
-              Pega la URL de tu web
+              URL de tu web
+            </button>
+            <button
+              onClick={() => setMode("pdf")}
+              className={`flex-1 rounded-lg py-2.5 text-sm font-medium transition-all duration-200 cursor-pointer ${mode === "pdf" ? "bg-white text-black shadow" : "text-white/50 hover:text-white"}`}
+            >
+              Subir PDF
             </button>
           </div>
 
@@ -185,9 +193,23 @@ export function LandingPage({ isLoggedIn, username }: Props) {
             </div>
           )}
 
+          {mode === "pdf" && (
+            <div className="mt-6">
+              <label className="mb-2 block text-sm font-medium text-white/70">Tus documentos</label>
+              <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-white/15 bg-white/[0.03] px-4 py-8 text-center">
+                <svg className="h-7 w-7 text-white/30" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.7}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h7l5 5v11a2 2 0 01-2 2z" />
+                </svg>
+                <p className="text-sm text-white/70">Sube tu carta, tarifas o catálogo en PDF</p>
+                <p className="text-xs text-white/30">Leemos las tablas de precios tal y como están</p>
+              </div>
+              <p className="mt-2 text-xs text-white/25">Pulsa continuar para subir tus archivos.</p>
+            </div>
+          )}
+
           <button
             onClick={handleCTA}
-            disabled={!(mode === "describe" ? description : url).trim()}
+            disabled={mode !== "pdf" && !(mode === "describe" ? description : url).trim()}
             className="mt-8 w-full rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 py-4 text-base font-semibold text-white shadow-lg shadow-violet-500/20 transition hover:from-violet-500 hover:to-indigo-500 hover:shadow-violet-500/30 active:scale-[0.99] cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
           >
             Crear mi chatbot →
