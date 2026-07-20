@@ -2,11 +2,15 @@ import { createAdminClient } from './supabase/admin';
 
 export type PlanName = 'free' | 'starter' | 'pro' | 'unlimited';
 
+// pdfPages tiene un techo duro que no depende del precio: cada página cuesta
+// ~2.500-3.400 tokens de entrada (la imagen de la página domina, no su texto),
+// así que a partir de ~75 páginas la petición no cabe en el contexto de 200k y
+// la API falla antes de generar nada. 50 deja margen incluso con páginas densas.
 export const PLAN_LIMITS: Record<PlanName, { chatbots: number; messages: number; extractions: number; pdfPages: number; pdfGenerations: number; monthly: boolean }> = {
-  free:      { chatbots: 1,  messages: 20,  extractions: 2,  pdfPages: 5,   pdfGenerations: 3,  monthly: false },
-  starter:   { chatbots: 3,  messages: 100, extractions: 5,  pdfPages: 15,  pdfGenerations: 12, monthly: true  },
-  pro:       { chatbots: 5,  messages: 500, extractions: 10, pdfPages: 30,  pdfGenerations: 20, monthly: true  },
-  unlimited: { chatbots: -1, messages: -1,  extractions: -1, pdfPages: 100, pdfGenerations: 30, monthly: true  },
+  free:      { chatbots: 1,  messages: 20,  extractions: 2,  pdfPages: 5,  pdfGenerations: 3,  monthly: false },
+  starter:   { chatbots: 3,  messages: 100, extractions: 5,  pdfPages: 15, pdfGenerations: 12, monthly: true  },
+  pro:       { chatbots: 5,  messages: 500, extractions: 10, pdfPages: 30, pdfGenerations: 20, monthly: true  },
+  unlimited: { chatbots: -1, messages: -1,  extractions: -1, pdfPages: 50, pdfGenerations: 30, monthly: true  },
 };
 
 export const PLAN_LABELS: Record<PlanName, string> = {
