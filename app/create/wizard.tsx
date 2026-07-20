@@ -383,19 +383,19 @@ export function CreateWizard({
                   <input
                     type="file"
                     accept="application/pdf,.pdf"
-                    multiple
                     className="hidden"
                     onChange={(e) => {
                       const picked = Array.from(e.target.files ?? []);
-                      if (picked.length) setPdfFiles((prev) => [...prev, ...picked].slice(0, 5));
+                      // Un solo PDF: elegir otro reemplaza al anterior en vez de acumular.
+                      if (picked.length) setPdfFiles(picked.slice(0, 1));
                       e.target.value = "";
                     }}
                   />
                   <svg className="h-7 w-7 text-white/30" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.7}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 16V4m0 0L8 8m4-4l4 4M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2" />
                   </svg>
-                  <p className="text-sm text-white/70">Arrastra tus PDFs o haz clic para elegirlos</p>
-                  <p className="text-xs text-white/30">Cartas, tarifas, catálogos… hasta 5 archivos de 10 MB</p>
+                  <p className="text-sm text-white/70">Arrastra tu PDF o haz clic para elegirlo</p>
+                  <p className="text-xs text-white/30">Carta, tarifas o catálogo — un archivo de hasta 10 MB</p>
                 </label>
 
                 {pdfFiles.length > 0 && (

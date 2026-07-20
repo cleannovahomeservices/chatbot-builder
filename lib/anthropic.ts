@@ -147,13 +147,14 @@ ${PROMPT_RULES}`,
               description: 'El system prompt completo listo para usar, sin explicaciones.',
             },
             primaryColor: {
-              type: ['string', 'null'],
+              type: 'string',
               description:
-                'Color de marca dominante del documento en hex (#rrggbb), o null si el documento no tiene una identidad de color clara.',
+                'Color principal del widget en hex (#rrggbb). Si el documento tiene una identidad de color clara (logo, cabeceras, fondos de marca), usa ESE color. Si no la tiene — el caso más común, porque una tarifa o una carta suele ir en blanco y negro —, elige un color que encaje con el SECTOR del negocio: construcción/reformas naranja o ámbar, naturaleza/retiros/jardinería verde, salud/clínica/dental azul, belleza/estética rosa o malva, restauración rojo o terracota, legal/consultoría azul marino, deporte/gimnasio naranja intenso. Nunca devuelvas negro, blanco ni gris.',
             },
             secondaryColor: {
-              type: ['string', 'null'],
-              description: 'Color secundario o acento en hex (#rrggbb), o null.',
+              type: 'string',
+              description:
+                'Color secundario o acento en hex (#rrggbb), armónico con primaryColor: una variante más oscura o más clara del mismo tono, o un complementario suave. Nunca negro, blanco ni gris.',
             },
           },
           required: ['prompt', 'primaryColor', 'secondaryColor'],
