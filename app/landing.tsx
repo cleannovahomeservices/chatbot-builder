@@ -194,7 +194,8 @@ export function LandingPage({ isLoggedIn, username }: Props) {
                   const dropped = Array.from(e.dataTransfer.files).filter(
                     (f) => f.type === "application/pdf" || f.name.toLowerCase().endsWith(".pdf"),
                   );
-                  if (dropped.length) setPdfFiles((prev) => [...prev, ...dropped].slice(0, 5));
+                  // Un solo PDF: soltar otro reemplaza al anterior, igual que el selector.
+                  if (dropped.length) setPdfFiles(dropped.slice(0, 1));
                 }}
                 className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-white/15 bg-white/[0.03] px-4 py-8 text-center cursor-pointer transition hover:border-violet-500/50 hover:bg-violet-500/5"
               >
