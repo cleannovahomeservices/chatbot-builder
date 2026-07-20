@@ -17,7 +17,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Chatbot Builder — Crea tu chatbot en 30 segundos",
   description:
-    "Describe tu negocio o pega la URL de tu web y crea un chatbot personalizado en segundos. Sin código, sin complicaciones.",
+    "Pega la URL de tu web o sube tu carta, tarifas o catálogo en PDF y crea un chatbot personalizado en segundos. Sin código, sin complicaciones.",
 };
 
 export default function RootLayout({

@@ -335,6 +335,15 @@ export function CreateWizard({
   return (
     <main className="min-h-screen bg-[#0A0A0A] text-white flex flex-col items-center justify-center px-4 py-16">
       <div className="w-full max-w-2xl">
+        {/* Salida siempre disponible: sin esto, un error al subir el PDF deja
+            al usuario encerrado en /create sin forma de volver al panel. */}
+        <button
+          onClick={() => router.push("/dashboard")}
+          className="mb-6 text-sm text-white/40 hover:text-white/80 transition cursor-pointer"
+        >
+          ← Volver al panel
+        </button>
+
         {/* Step dots */}
         <div className="flex items-center gap-2 mb-10 justify-center">
           {STEP_DOTS.map((s, i) => (
