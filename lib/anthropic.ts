@@ -32,24 +32,10 @@ Return ONLY the file content or NO_CSP. No markdown fences, no explanation. Pres
   return result;
 }
 
-export async function generateSystemPrompt(input: string): Promise<string> {
-  const response = await openaiPrompts.chat.completions.create({
-    model: 'gpt-5-mini',
-    reasoning_effort: 'low',
-    messages: [
-      {
-        role: 'system',
-        content:
-          'Eres un experto en crear system prompts para chatbots de atención al cliente. Creas prompts concretos que incluyen la información real del negocio, no frases genéricas.',
-      },
-      {
-        role: 'user',
-        content: `Analiza el siguiente contenido de un negocio y crea un system prompt completo para su chatbot de atención al cliente.
+const PROMPT_SYSTEM_ROLE =
+  'Eres un experto en crear system prompts para chatbots de atención al cliente. Creas prompts concretos que incluyen la información real del negocio, no frases genéricas.';
 
-CONTENIDO DEL NEGOCIO:
-${input}
-
-REGLAS CRÍTICAS — debes seguirlas sin excepción:
+const PROMPT_RULES = `REGLAS CRÍTICAS — debes seguirlas sin excepción:
 
 1. INCRUSTA la información real en el prompt. NO escribas frases genéricas como "puedo informarte sobre nuestros precios" — escribe LOS PRECIOS REALES que aparezcan en el contenido.
    MAL: "Ofrecemos varios servicios a precios competitivos."
@@ -81,7 +67,22 @@ REGLAS CRÍTICAS — debes seguirlas sin excepción:
 8. RESPUESTAS CONCISAS Y ESPECÍFICAS — escribe esta instrucción textualmente en el system prompt que generes:
    "Responde SOLO lo que se te pregunta. Si alguien pregunta por un servicio concreto, da solo ese dato. No listes todo. Si preguntan el horario, da solo el horario. Sé directo y natural, como si respondieras por WhatsApp. No añadas información no solicitada."
 
-Devuelve ÚNICAMENTE el system prompt listo para usar, sin explicaciones ni texto adicional.`,
+Devuelve ÚNICAMENTE el system prompt listo para usar, sin explicaciones ni texto adicional.`;
+
+export async function generateSystemPrompt(input: string): Promise<string> {
+  const response = await openaiPrompts.chat.completions.create({
+    model: 'gpt-5-mini',
+    reasoning_effort: 'low',
+    messages: [
+      { role: 'system', content: PROMPT_SYSTEM_ROLE },
+      {
+        role: 'user',
+        content: `Analiza el siguiente contenido de un negocio y crea un system prompt completo para su chatbot de atención al cliente.
+
+CONTENIDO DEL NEGOCIO:
+${input}
+
+${PROMPT_RULES}`,
       },
     ],
   });
@@ -89,4 +90,93 @@ Devuelve ÚNICAMENTE el system prompt listo para usar, sin explicaciones ni text
   const text = response.choices[0]?.message?.content;
   if (!text) throw new Error('Empty response from OpenAI');
   return text;
+}
+
+export interface PdfInput {
+  filename: string;
+  base64: string;
+}
+
+export interface PdfPromptResult {
+  prompt: string;
+  primaryColor: string | null;
+  secondaryColor: string | null;
+}
+
+/**
+ * Genera el system prompt a partir de PDFs usando Claude, que los lee de forma
+ * nativa (ve el layout real: tablas de precios, columnas, cartas). Extraer el
+ * texto antes con una librería destrozaría la asociación servicio↔precio, que
+ * es justo lo que la regla nº1 exige preservar.
+ */
+export async function generateSystemPromptFromPdfs(pdfs: PdfInput[]): Promise<PdfPromptResult> {
+  const documents = pdfs.map((pdf) => ({
+    type: 'document' as const,
+    source: { type: 'base64' as const, media_type: 'application/pdf' as const, data: pdf.base64 },
+    title: pdf.filename,
+  }));
+
+  const msg = await client.messages.create({
+    model: 'claude-sonnet-5',
+    max_tokens: 8000,
+    system: PROMPT_SYSTEM_ROLE,
+    messages: [
+      {
+        role: 'user',
+        content: [
+          ...documents,
+          {
+            type: 'text',
+            text: `Analiza ${pdfs.length === 1 ? 'el documento adjunto' : 'los documentos adjuntos'} de un negocio y crea un system prompt completo para su chatbot de atención al cliente.
+
+Presta especial atención a las TABLAS, cartas y listas de precios: conserva la asociación exacta entre cada servicio/producto y su precio tal y como aparece visualmente en el documento.
+
+${PROMPT_RULES}`,
+          },
+        ],
+      },
+    ],
+    output_config: {
+      format: {
+        type: 'json_schema',
+        schema: {
+          type: 'object',
+          properties: {
+            prompt: {
+              type: 'string',
+              description: 'El system prompt completo listo para usar, sin explicaciones.',
+            },
+            primaryColor: {
+              type: ['string', 'null'],
+              description:
+                'Color de marca dominante del documento en hex (#rrggbb), o null si el documento no tiene una identidad de color clara.',
+            },
+            secondaryColor: {
+              type: ['string', 'null'],
+              description: 'Color secundario o acento en hex (#rrggbb), o null.',
+            },
+          },
+          required: ['prompt', 'primaryColor', 'secondaryColor'],
+          additionalProperties: false,
+        },
+      },
+    },
+  });
+
+  const text = msg.content.find((b) => b.type === 'text');
+  if (!text || text.type !== 'text' || !text.text.trim()) {
+    throw new Error('Empty response from Claude');
+  }
+
+  const parsed = JSON.parse(text.text) as PdfPromptResult;
+  if (!parsed.prompt?.trim()) throw new Error('Claude devolvió un prompt vacío');
+
+  const hex = (c: unknown): string | null =>
+    typeof c === 'string' && /^#[0-9a-fA-F]{6}$/.test(c) ? c.toLowerCase() : null;
+
+  return {
+    prompt: parsed.prompt.trim(),
+    primaryColor: hex(parsed.primaryColor),
+    secondaryColor: hex(parsed.secondaryColor),
+  };
 }

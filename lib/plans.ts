@@ -2,11 +2,11 @@ import { createAdminClient } from './supabase/admin';
 
 export type PlanName = 'free' | 'starter' | 'pro' | 'unlimited';
 
-export const PLAN_LIMITS: Record<PlanName, { chatbots: number; messages: number; extractions: number; monthly: boolean }> = {
-  free:      { chatbots: 1,  messages: 20,  extractions: 2,  monthly: false },
-  starter:   { chatbots: 3,  messages: 100, extractions: 5,  monthly: true  },
-  pro:       { chatbots: 5,  messages: 500, extractions: 10, monthly: true  },
-  unlimited: { chatbots: -1, messages: -1,  extractions: -1, monthly: true  },
+export const PLAN_LIMITS: Record<PlanName, { chatbots: number; messages: number; extractions: number; pdfPages: number; pdfGenerations: number; monthly: boolean }> = {
+  free:      { chatbots: 1,  messages: 20,  extractions: 2,  pdfPages: 5,   pdfGenerations: 3,  monthly: false },
+  starter:   { chatbots: 3,  messages: 100, extractions: 5,  pdfPages: 15,  pdfGenerations: 12, monthly: true  },
+  pro:       { chatbots: 5,  messages: 500, extractions: 10, pdfPages: 30,  pdfGenerations: 20, monthly: true  },
+  unlimited: { chatbots: -1, messages: -1,  extractions: -1, pdfPages: 100, pdfGenerations: 30, monthly: true  },
 };
 
 export const PLAN_LABELS: Record<PlanName, string> = {
@@ -120,15 +120,62 @@ export async function checkExtractionLimit(userId: string): Promise<{ allowed: b
   return { allowed: count < limit, count, limit, plan };
 }
 
+export async function getPdfGenerationCount(userId: string, plan: PlanName): Promise<number> {
+  const db = createAdminClient();
+  let q = db
+    .from('pdf_generations')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', userId);
+
+  // Plan free = total acumulado; planes de pago = mes en curso
+  if (PLAN_LIMITS[plan].monthly) {
+    q = q.gte('created_at', getCurrentMonthStart());
+  }
+
+  const { count } = await q;
+  return count ?? 0;
+}
+
+export async function checkPdfLimits(userId: string): Promise<{
+  allowed: boolean;
+  reason: 'ok' | 'generations';
+  count: number;
+  limit: number;
+  pageLimit: number;
+  plan: PlanName;
+}> {
+  const plan = await getUserPlan(userId);
+  const limit = PLAN_LIMITS[plan].pdfGenerations;
+  const pageLimit = PLAN_LIMITS[plan].pdfPages;
+  if (limit === -1) {
+    return { allowed: true, reason: 'ok', count: 0, limit, pageLimit, plan };
+  }
+  const count = await getPdfGenerationCount(userId, plan);
+  return {
+    allowed: count < limit,
+    reason: count < limit ? 'ok' : 'generations',
+    count,
+    limit,
+    pageLimit,
+    plan,
+  };
+}
+
+export async function recordPdfGeneration(userId: string, pages: number): Promise<void> {
+  const db = createAdminClient();
+  await db.from('pdf_generations').insert({ user_id: userId, pages });
+}
+
 export async function getUserPlanData(userId: string) {
   const db = createAdminClient();
   const plan = await getUserPlan(userId);
   const limits = PLAN_LIMITS[plan];
 
-  const [messageCount, chatbotCountResult, extractionCount, subResult] = await Promise.all([
+  const [messageCount, chatbotCountResult, extractionCount, pdfGenerationCount, subResult] = await Promise.all([
     getMessageCount(userId, plan),
     db.from('chatbots').select('id', { count: 'exact', head: true }).eq('user_id', userId),
     getExtractionCount(userId, plan),
+    getPdfGenerationCount(userId, plan),
     db.from('subscriptions').select('cancel_at, current_period_end, status').eq('user_id', userId).maybeSingle(),
   ]);
 
@@ -145,6 +192,10 @@ export async function getUserPlanData(userId: string) {
     messageLimit: limits.messages,
     extractionCount,
     extractionLimit: limits.extractions,
+    pdfGenerationCount,
+    pdfGenerationLimit: limits.pdfGenerations,
+    pdfPageLimit: limits.pdfPages,
+    canGeneratePdf: limits.pdfGenerations === -1 || pdfGenerationCount < limits.pdfGenerations,
     periodLabel,
     canCreateChatbot: limits.chatbots === -1 || chatbotCount < limits.chatbots,
     canSendMessage: limits.messages === -1 || messageCount < limits.messages,

@@ -70,7 +70,11 @@ export function CreateWizard({
   const router = useRouter();
   const [step, setStep] = useState<Step>(initialInput.trim() ? "generating" : "input");
   const [userInput, setUserInput] = useState(initialInput);
-  const [inputMode, setInputMode] = useState<"describe" | "url">(initialMode === "url" ? "url" : "describe");
+  const [inputMode, setInputMode] = useState<"describe" | "url" | "pdf">(
+    initialMode === "url" ? "url" : initialMode === "pdf" ? "pdf" : "describe",
+  );
+  const [pdfFiles, setPdfFiles] = useState<File[]>([]);
+  const [upgradeError, setUpgradeError] = useState(false);
   const [prompt, setPrompt] = useState("");
   const [repos, setRepos] = useState<Repo[]>([]);
   const [repoSearch, setRepoSearch] = useState('');
@@ -94,9 +98,41 @@ export function CreateWizard({
   const [wizardGreeting, setWizardGreeting] = useState('¡Hola! ¿En qué puedo ayudarte hoy?');
   const [deployMethod, setDeployMethod] = useState<'github' | 'download' | null>(null);
 
+  async function startGeneratingFromPdfs() {
+    if (pdfFiles.length === 0) return;
+    setStep("generating");
+    setError("");
+    setUpgradeError(false);
+    try {
+      const fd = new FormData();
+      for (const f of pdfFiles) fd.append("files", f);
+      const r = await fetch("/api/analyze-pdf", { method: "POST", body: fd });
+      const d = await r.json();
+      if (!r.ok || !d.prompt) {
+        setError(d.error ?? "No se pudo analizar el PDF.");
+        setUpgradeError(!!d.upgrade);
+        setStep("input");
+        return;
+      }
+      setPrompt(d.prompt);
+      if (d.primaryColor && d.secondaryColor) {
+        setExtractedColors({ primary: d.primaryColor, secondary: d.secondaryColor });
+        setWidgetPrimary(d.primaryColor);
+        setWidgetSecondary(d.secondaryColor);
+      }
+      setStep("review");
+    } catch {
+      setError("Error de conexión.");
+      setStep("input");
+    }
+  }
+
   async function startGenerating() {
+    if (inputMode === "pdf") return startGeneratingFromPdfs();
     if (!userInput.trim()) return;
     setStep("generating");
+    setError("");
+    setUpgradeError(false);
     try {
       let input = userInput;
       let lang = 'es';
@@ -297,7 +333,7 @@ export function CreateWizard({
         {step === "input" && (
           <div>
             <h2 className="text-2xl font-bold mb-2">Crea tu chatbot</h2>
-            <p className="text-white/50 mb-6">Describe tu negocio o pega la URL de tu web.</p>
+            <p className="text-white/50 mb-6">Describe tu negocio, pega la URL de tu web o sube tus PDFs.</p>
             <div className="flex rounded-xl bg-white/5 p-1 mb-5">
               <button onClick={() => setInputMode("describe")} className={`flex-1 rounded-lg py-2.5 text-sm font-medium transition-all cursor-pointer ${inputMode === "describe" ? "bg-white text-black shadow" : "text-white/50 hover:text-white"}`}>
                 Describe tu negocio
@@ -305,8 +341,11 @@ export function CreateWizard({
               <button onClick={() => setInputMode("url")} className={`flex-1 rounded-lg py-2.5 text-sm font-medium transition-all cursor-pointer ${inputMode === "url" ? "bg-white text-black shadow" : "text-white/50 hover:text-white"}`}>
                 URL de tu web
               </button>
+              <button onClick={() => setInputMode("pdf")} className={`flex-1 rounded-lg py-2.5 text-sm font-medium transition-all cursor-pointer ${inputMode === "pdf" ? "bg-white text-black shadow" : "text-white/50 hover:text-white"}`}>
+                Subir PDF
+              </button>
             </div>
-            {inputMode === "describe" ? (
+            {inputMode === "describe" && (
               <textarea
                 value={userInput}
                 onChange={(e) => setUserInput(e.target.value)}
@@ -314,7 +353,8 @@ export function CreateWizard({
                 placeholder="Ej: Somos una clínica dental en Madrid. Ofrecemos implantes, ortodoncia y blanqueamiento..."
                 className="w-full resize-none rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white placeholder-white/25 outline-none focus:border-violet-500/60 focus:ring-1 focus:ring-violet-500/30"
               />
-            ) : (
+            )}
+            {inputMode === "url" && (
               <input
                 type="url"
                 value={userInput}
@@ -323,9 +363,77 @@ export function CreateWizard({
                 className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white placeholder-white/25 outline-none focus:border-violet-500/60"
               />
             )}
+            {inputMode === "pdf" && (
+              <div>
+                <label
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    const dropped = Array.from(e.dataTransfer.files).filter(
+                      (f) => f.type === "application/pdf" || f.name.toLowerCase().endsWith(".pdf"),
+                    );
+                    if (dropped.length) setPdfFiles((prev) => [...prev, ...dropped].slice(0, 5));
+                  }}
+                  className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-white/15 bg-white/[0.03] px-4 py-10 text-center cursor-pointer hover:border-violet-500/50 hover:bg-violet-500/5 transition-all"
+                >
+                  <input
+                    type="file"
+                    accept="application/pdf,.pdf"
+                    multiple
+                    className="hidden"
+                    onChange={(e) => {
+                      const picked = Array.from(e.target.files ?? []);
+                      if (picked.length) setPdfFiles((prev) => [...prev, ...picked].slice(0, 5));
+                      e.target.value = "";
+                    }}
+                  />
+                  <svg className="h-7 w-7 text-white/30" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.7}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 16V4m0 0L8 8m4-4l4 4M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2" />
+                  </svg>
+                  <p className="text-sm text-white/70">Arrastra tus PDFs o haz clic para elegirlos</p>
+                  <p className="text-xs text-white/30">Cartas, tarifas, catálogos… hasta 5 archivos de 10 MB</p>
+                </label>
+
+                {pdfFiles.length > 0 && (
+                  <div className="mt-3 flex flex-col gap-2">
+                    {pdfFiles.map((f, i) => (
+                      <div key={`${f.name}-${i}`} className="flex items-center gap-3 rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+                        <svg className="h-4 w-4 shrink-0 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.7}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h7l5 5v11a2 2 0 01-2 2z" />
+                        </svg>
+                        <span className="flex-1 truncate text-sm text-white/70">{f.name}</span>
+                        <span className="text-xs text-white/30">{(f.size / 1024 / 1024).toFixed(1)} MB</span>
+                        <button
+                          onClick={() => setPdfFiles((prev) => prev.filter((_, idx) => idx !== i))}
+                          className="text-white/30 hover:text-white/80 transition cursor-pointer"
+                          aria-label={`Quitar ${f.name}`}
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {error && (
+              <div className="mt-4 rounded-xl border border-red-500/30 bg-red-500/5 px-4 py-3">
+                <p className="text-sm text-red-400">{error}</p>
+                {upgradeError && (
+                  <button
+                    onClick={() => router.push("/dashboard?upgrade=1")}
+                    className="mt-2 text-sm font-semibold text-violet-300 hover:text-violet-200 transition cursor-pointer"
+                  >
+                    Ver planes →
+                  </button>
+                )}
+              </div>
+            )}
+
             <button
               onClick={startGenerating}
-              disabled={!userInput.trim()}
+              disabled={inputMode === "pdf" ? pdfFiles.length === 0 : !userInput.trim()}
               className="mt-6 w-full rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 py-4 font-semibold text-white hover:from-violet-500 hover:to-indigo-500 transition active:scale-[0.99] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
             >
               Generar chatbot con IA →
@@ -362,7 +470,7 @@ export function CreateWizard({
                 <p className="text-sm font-medium text-white/80">Colores del widget</p>
                 {extractedColors && (
                   <span className="text-xs text-emerald-400 border border-emerald-500/30 bg-emerald-500/10 rounded-full px-2 py-0.5">
-                    Detectados de tu web
+                    {inputMode === "pdf" ? "Detectados de tu PDF" : "Detectados de tu web"}
                   </span>
                 )}
               </div>
@@ -411,7 +519,7 @@ export function CreateWizard({
               <div className="mb-4">
                 <div className="flex items-center justify-between mb-2">
                   <p className="text-xs text-white/50">Estilo del widget</p>
-                  {extractedColors && <span className="text-xs text-violet-400">Elegido por IA</span>}
+                  {extractedColors && inputMode !== "pdf" && <span className="text-xs text-violet-400">Elegido por IA</span>}
                 </div>
                 <div className="flex flex-wrap gap-1.5">
                   {(['bubble','minimal','rounded','dark','neon','corporate','soft','floating','compact','retro'] as const).map((st) => (
