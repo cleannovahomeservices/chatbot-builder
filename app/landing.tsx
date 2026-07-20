@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import Image from "next/image";
+import { useRouter } from "next/navigation";
+import { setPendingPdfs } from "@/lib/pdf-handoff";
 
 const IconGithub = (props: React.SVGProps<SVGSVGElement>) => (
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" {...props}>
@@ -21,9 +23,10 @@ interface Props {
 }
 
 export function LandingPage({ isLoggedIn, username }: Props) {
-  const [mode, setMode] = useState<"describe" | "url" | "pdf">("describe");
-  const [description, setDescription] = useState("");
+  const router = useRouter();
+  const [mode, setMode] = useState<"url" | "pdf">("url");
   const [url, setUrl] = useState("");
+  const [pdfFiles, setPdfFiles] = useState<File[]>([]);
   const [showModal, setShowModal] = useState(false);
   const [pendingParams, setPendingParams] = useState<{ mode: string; input: string } | null>(null);
   const [emailAddress, setEmailAddress] = useState("");
@@ -79,15 +82,25 @@ export function LandingPage({ isLoggedIn, username }: Props) {
   }
 
   function handleCTA() {
-    // En modo PDF no hay texto que pasar: el archivo se sube ya en /create,
-    // porque no se puede mandar por query param.
-    const input = mode === "pdf" ? "" : mode === "describe" ? description : url;
-    if (mode !== "pdf" && !input.trim()) return;
+    if (mode === "pdf") {
+      if (pdfFiles.length === 0) return;
+      if (isLoggedIn) {
+        // Navegación de cliente para no perder los File de memoria.
+        setPendingPdfs(pdfFiles);
+        router.push("/create?mode=pdf");
+      } else {
+        // El login redirige fuera y los archivos no sobreviven: se vuelven a
+        // pedir en /create, que ya abre en modo PDF.
+        openLogin({ mode, input: "" });
+      }
+      return;
+    }
+    if (!url.trim()) return;
     if (isLoggedIn) {
-      const params = new URLSearchParams({ mode, input });
+      const params = new URLSearchParams({ mode, input: url });
       window.location.href = `/create?${params}`;
     } else {
-      openLogin({ mode, input });
+      openLogin({ mode, input: url });
     }
   }
 
@@ -135,18 +148,12 @@ export function LandingPage({ isLoggedIn, username }: Props) {
         </h1>
 
         <p className="mt-5 max-w-xl text-center text-lg text-white/50">
-          Describe tu negocio, pega tu web o sube tus PDFs — nosotros nos encargamos del resto.
+          Pega tu web o sube tus PDFs — nosotros nos encargamos del resto.
         </p>
 
         {/* Card */}
         <div className="mt-10 w-full max-w-2xl rounded-2xl border border-white/10 bg-white/[0.03] p-5 sm:p-8 backdrop-blur-sm">
           <div className="flex rounded-xl bg-white/5 p-1">
-            <button
-              onClick={() => setMode("describe")}
-              className={`flex-1 rounded-lg py-2.5 text-sm font-medium transition-all duration-200 cursor-pointer ${mode === "describe" ? "bg-white text-black shadow" : "text-white/50 hover:text-white"}`}
-            >
-              Describe tu negocio
-            </button>
             <button
               onClick={() => setMode("url")}
               className={`flex-1 rounded-lg py-2.5 text-sm font-medium transition-all duration-200 cursor-pointer ${mode === "url" ? "bg-white text-black shadow" : "text-white/50 hover:text-white"}`}
@@ -160,22 +167,6 @@ export function LandingPage({ isLoggedIn, username }: Props) {
               Subir PDF
             </button>
           </div>
-
-          {mode === "describe" && (
-            <div className="mt-6">
-              <label className="mb-2 block text-sm font-medium text-white/70">
-                ¿A qué se dedica tu empresa?
-              </label>
-              <textarea
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                rows={5}
-                placeholder="Ej: Somos una clínica dental en Madrid. Ofrecemos implantes, ortodoncia y blanqueamiento. Nuestro tono es cercano y profesional..."
-                className="w-full resize-none rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white placeholder-white/25 outline-none transition focus:border-violet-500/60 focus:ring-1 focus:ring-violet-500/30"
-              />
-              <p className="mt-2 text-right text-xs text-white/25">{description.length} caracteres</p>
-            </div>
-          )}
 
           {mode === "url" && (
             <div className="mt-6">
@@ -196,20 +187,61 @@ export function LandingPage({ isLoggedIn, username }: Props) {
           {mode === "pdf" && (
             <div className="mt-6">
               <label className="mb-2 block text-sm font-medium text-white/70">Tus documentos</label>
-              <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-white/15 bg-white/[0.03] px-4 py-8 text-center">
+              <label
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  const dropped = Array.from(e.dataTransfer.files).filter(
+                    (f) => f.type === "application/pdf" || f.name.toLowerCase().endsWith(".pdf"),
+                  );
+                  if (dropped.length) setPdfFiles((prev) => [...prev, ...dropped].slice(0, 5));
+                }}
+                className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-white/15 bg-white/[0.03] px-4 py-8 text-center cursor-pointer transition hover:border-violet-500/50 hover:bg-violet-500/5"
+              >
+                <input
+                  type="file"
+                  accept="application/pdf,.pdf"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => {
+                    const picked = Array.from(e.target.files ?? []);
+                    if (picked.length) setPdfFiles((prev) => [...prev, ...picked].slice(0, 5));
+                    e.target.value = "";
+                  }}
+                />
                 <svg className="h-7 w-7 text-white/30" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.7}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h7l5 5v11a2 2 0 01-2 2z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 16V4m0 0L8 8m4-4l4 4M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2" />
                 </svg>
-                <p className="text-sm text-white/70">Sube tu carta, tarifas o catálogo en PDF</p>
-                <p className="text-xs text-white/30">Leemos las tablas de precios tal y como están</p>
-              </div>
-              <p className="mt-2 text-xs text-white/25">Pulsa continuar para subir tus archivos.</p>
+                <p className="text-sm text-white/70">Arrastra tus PDFs o haz clic para elegirlos</p>
+                <p className="text-xs text-white/30">Carta, tarifas o catálogo — leemos las tablas tal y como están</p>
+              </label>
+
+              {pdfFiles.length > 0 && (
+                <div className="mt-3 flex flex-col gap-2">
+                  {pdfFiles.map((f, i) => (
+                    <div key={`${f.name}-${i}`} className="flex items-center gap-3 rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+                      <svg className="h-4 w-4 shrink-0 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.7}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h7l5 5v11a2 2 0 01-2 2z" />
+                      </svg>
+                      <span className="flex-1 truncate text-sm text-white/70">{f.name}</span>
+                      <span className="text-xs text-white/30">{(f.size / 1024 / 1024).toFixed(1)} MB</span>
+                      <button
+                        onClick={(e) => { e.preventDefault(); setPdfFiles((prev) => prev.filter((_, idx) => idx !== i)); }}
+                        className="cursor-pointer text-white/30 transition hover:text-white/80"
+                        aria-label={`Quitar ${f.name}`}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
           <button
             onClick={handleCTA}
-            disabled={mode !== "pdf" && !(mode === "describe" ? description : url).trim()}
+            disabled={mode === "pdf" ? pdfFiles.length === 0 : !url.trim()}
             className="mt-8 w-full rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 py-4 text-base font-semibold text-white shadow-lg shadow-violet-500/20 transition hover:from-violet-500 hover:to-indigo-500 hover:shadow-violet-500/30 active:scale-[0.99] cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
           >
             Crear mi chatbot →

@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
+import { peekPendingPdfs, clearPendingPdfs } from "@/lib/pdf-handoff";
 
 type Step = "input" | "generating" | "review" | "deploy" | "repo" | "creating" | "done";
 const STEP_DOTS: Step[] = ["input", "generating", "review", "deploy", "creating", "done"];
@@ -68,12 +69,13 @@ export function CreateWizard({
   initialInput: string;
 }) {
   const router = useRouter();
-  const [step, setStep] = useState<Step>(initialInput.trim() ? "generating" : "input");
-  const [userInput, setUserInput] = useState(initialInput);
-  const [inputMode, setInputMode] = useState<"describe" | "url" | "pdf">(
-    initialMode === "url" ? "url" : initialMode === "pdf" ? "pdf" : "describe",
+  const handedPdfs = initialMode === "pdf" ? peekPendingPdfs() : [];
+  const [step, setStep] = useState<Step>(
+    initialInput.trim() || handedPdfs.length > 0 ? "generating" : "input",
   );
-  const [pdfFiles, setPdfFiles] = useState<File[]>([]);
+  const [userInput, setUserInput] = useState(initialInput);
+  const [inputMode, setInputMode] = useState<"url" | "pdf">(initialMode === "pdf" ? "pdf" : "url");
+  const [pdfFiles, setPdfFiles] = useState<File[]>(handedPdfs);
   const [upgradeError, setUpgradeError] = useState(false);
   const [prompt, setPrompt] = useState("");
   const [repos, setRepos] = useState<Repo[]>([]);
@@ -98,14 +100,14 @@ export function CreateWizard({
   const [wizardGreeting, setWizardGreeting] = useState('¡Hola! ¿En qué puedo ayudarte hoy?');
   const [deployMethod, setDeployMethod] = useState<'github' | 'download' | null>(null);
 
-  async function startGeneratingFromPdfs() {
-    if (pdfFiles.length === 0) return;
+  async function startGeneratingFromPdfs(files: File[] = pdfFiles) {
+    if (files.length === 0) return;
     setStep("generating");
     setError("");
     setUpgradeError(false);
     try {
       const fd = new FormData();
-      for (const f of pdfFiles) fd.append("files", f);
+      for (const f of files) fd.append("files", f);
       const r = await fetch("/api/analyze-pdf", { method: "POST", body: fd });
       const d = await r.json();
       if (!r.ok || !d.prompt) {
@@ -168,6 +170,20 @@ export function CreateWizard({
       setStep("input");
     }
   }
+
+  // PDFs elegidos en la landing: llegan en memoria vía navegación de cliente.
+  // Si un recargado completo los perdió, el usuario los vuelve a soltar aquí.
+  const pdfHandoffDone = useRef(false);
+  useEffect(() => {
+    if (pdfHandoffDone.current) return;
+    pdfHandoffDone.current = true;
+    const handed = peekPendingPdfs();
+    if (initialMode !== "pdf" || handed.length === 0) return;
+    clearPendingPdfs();
+    // Fuera del commit del efecto: el paso ya arrancó en "generating", así que
+    // aquí solo hay que lanzar la petición.
+    queueMicrotask(() => startGeneratingFromPdfs(handed));
+  }, []);
 
   // Restore wizard state after GitHub OAuth redirect
   useEffect(() => {
@@ -333,11 +349,8 @@ export function CreateWizard({
         {step === "input" && (
           <div>
             <h2 className="text-2xl font-bold mb-2">Crea tu chatbot</h2>
-            <p className="text-white/50 mb-6">Describe tu negocio, pega la URL de tu web o sube tus PDFs.</p>
+            <p className="text-white/50 mb-6">Pega la URL de tu web o sube tus PDFs.</p>
             <div className="flex rounded-xl bg-white/5 p-1 mb-5">
-              <button onClick={() => setInputMode("describe")} className={`flex-1 rounded-lg py-2.5 text-sm font-medium transition-all cursor-pointer ${inputMode === "describe" ? "bg-white text-black shadow" : "text-white/50 hover:text-white"}`}>
-                Describe tu negocio
-              </button>
               <button onClick={() => setInputMode("url")} className={`flex-1 rounded-lg py-2.5 text-sm font-medium transition-all cursor-pointer ${inputMode === "url" ? "bg-white text-black shadow" : "text-white/50 hover:text-white"}`}>
                 URL de tu web
               </button>
@@ -345,15 +358,6 @@ export function CreateWizard({
                 Subir PDF
               </button>
             </div>
-            {inputMode === "describe" && (
-              <textarea
-                value={userInput}
-                onChange={(e) => setUserInput(e.target.value)}
-                rows={6}
-                placeholder="Ej: Somos una clínica dental en Madrid. Ofrecemos implantes, ortodoncia y blanqueamiento..."
-                className="w-full resize-none rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white placeholder-white/25 outline-none focus:border-violet-500/60 focus:ring-1 focus:ring-violet-500/30"
-              />
-            )}
             {inputMode === "url" && (
               <input
                 type="url"
