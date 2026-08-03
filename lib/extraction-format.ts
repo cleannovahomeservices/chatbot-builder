@@ -461,52 +461,32 @@ export function generatePromptMd(
     lines.push('No hay fotos disponibles para este negocio. No inventes ni uses imágenes placeholder genéricas: en su lugar, refuerza el diseño con tipografía, color y composición. Considera usar iconos coherentes (Lucide o similar) en lugar de imágenes. Si el resultado queda pobre, sugiere al dueño aportar 5-8 fotos profesionales.');
     lines.push('');
   } else if (hasMetadata) {
-    // VERSIÓN CON METADATA — fotos clasificadas + curadas + (opcional) generadas con IA
+    // VERSIÓN CON METADATA — fotos clasificadas y rankeadas
     const realCurated = curateRealPhotos(photoMetadata!, 6);
-    const generated = photoMetadata!.filter(m => m.generated);
-    const heroGenerated = generated.find(m => m.slot === 'hero');
-    const sectionGenerated = generated.find(m => m.slot === 'ambient_section');
-    const footerGenerated = generated.find(m => m.slot === 'ambient_footer');
-
-    lines.push('## 5. Fotos: REALES (prueba social) vs GENERADAS por IA (ambientales)');
-    lines.push('');
-    lines.push('Tienes DOS tipos de fotos. **Es crítico que no las mezcles.**');
-    lines.push('');
-    lines.push('| Tipo | Origen | Función | Dónde usarlas |');
-    lines.push('|---|---|---|---|');
-    lines.push(`| **Fotos reales** del negocio | Google Maps (ya curadas) | Prueba social: demuestran que el negocio existe y trabaja | En el puesto que tienen asignado abajo. Nunca como relleno decorativo. |`);
-    lines.push(`| **Fotos generadas con IA** | OpenAI gpt-image-1 | Aportan coherencia visual y atmósfera | Solo como fondo o acento visual. NUNCA con un caption que sugiera "esto es nuestro". |`);
-    lines.push('');
-
-    // Una foto real buena gana siempre al hero generado: es el negocio de verdad.
     const realHero = realCurated.find(m => m.role === 'hero');
     const realGallery = realCurated.filter(m => m !== realHero);
 
-    lines.push('### 🎯 Asignación de puestos (esto ya está decidido)');
+    lines.push('## 5. Fotos: puestos ya asignados');
     lines.push('');
-    lines.push('Cada foto de abajo tiene un puesto asignado. **Úsala en ese puesto y en ninguno otro.** No las reordenes, no las repitas en dos secciones, no metas fotos que no estén en esta lista. Las URLs son permanentes (CDN nuestro), sirven con `<img>` o `next/image`.');
+    lines.push('Todas las fotos son **reales del negocio**, sacadas de su ficha de Google Maps, y ya están filtradas y ordenadas: quitamos las repetidas, las flojas y las que rompían la coherencia del conjunto. Cada una tiene un puesto asignado abajo.');
+    lines.push('');
+    lines.push('**Úsala en ese puesto y en ninguno otro.** No las reordenes, no repitas la misma en dos secciones, y no añadas imágenes que no estén en esta lista — ni de bancos de imágenes, ni generadas, ni placeholders. Si el negocio no tiene una foto para algo, esa sección se resuelve con tipografía y color, no con una foto de relleno. Las URLs son permanentes (CDN nuestro), sirven con `<img>` o `next/image`.');
     lines.push('');
 
     if (realHero) {
-      lines.push(`**HERO — foto real del negocio.** Va a pantalla completa en la primera sección, con overlay oscuro del 30-40% para que se lea el titular encima:`);
+      lines.push('**HERO.** Va a pantalla completa en la primera sección, con overlay oscuro del 30-40% para que se lea el titular encima:');
       lines.push('');
       lines.push(`- ${realHero.url}`);
       lines.push(`  - _${realHero.description || 'foto del negocio'}_`);
       if (realHero.roleReason) lines.push(`  - Elegida porque: ${realHero.roleReason}`);
       lines.push('');
-      if (heroGenerated) {
-        lines.push(`El hero es una foto **real**, así que la imagen generada de portada baja a background de una sección intermedia (con overlay, sin caption que insinúe que es del negocio): ${heroGenerated.url}`);
-        lines.push('');
-      }
-    } else if (heroGenerated) {
-      lines.push('**HERO — imagen generada.** Ninguna foto real del negocio da la talla para abrir la web, así que el hero es esta imagen ambiental generada con IA. A pantalla completa con overlay oscuro 30-50%. **No le pongas caption ni pie de foto**: es un recurso visual, no una foto del local.');
-      lines.push('');
-      lines.push(`- ${heroGenerated.url}`);
+    } else if (realCurated.length > 0) {
+      lines.push('**Sin foto de portada.** Ninguna de las fotos disponibles aguanta un hero a pantalla completa. Resuelve la portada **sin foto de fondo**: titular grande, un color de marca sólido o un degradado sutil, el CTA y la valoración de Google. Queda mucho mejor que estirar una foto mediocre a pantalla completa.');
       lines.push('');
     }
 
     if (realGallery.length > 0) {
-      lines.push(`**GALERÍA / PRUEBA SOCIAL — ${realGallery.length} ${realGallery.length === 1 ? 'foto real' : 'fotos reales'}, en este orden.** Son las únicas fotos reales que debes mostrar: ya descartamos las repetidas, las flojas y las que rompían el conjunto. Van todas juntas en una sola sección, con el mismo aspect-ratio y el mismo border-radius:`);
+      lines.push(`**GALERÍA — ${realGallery.length} ${realGallery.length === 1 ? 'foto' : 'fotos'}, en este orden.** Van juntas en una sola sección, con el mismo aspect-ratio y el mismo border-radius:`);
       lines.push('');
       for (const [i, p] of realGallery.entries()) {
         lines.push(`${i + 1}. ${p.url}`);
@@ -520,22 +500,12 @@ export function generatePromptMd(
       }
     }
 
-    if (sectionGenerated || footerGenerated) {
-      lines.push('**AMBIENTE — imágenes generadas con IA.** Aportan atmósfera y coherencia visual. **No muestran el negocio real**, así que nunca las acompañes de captions tipo "nuestra tienda" o "un trabajo nuestro", ni las mezcles en el mismo grid que las reales:');
-      lines.push('');
-      if (sectionGenerated) {
-        lines.push(`- **Sección secundaria (1:1)** — imagen lateral en "Sobre nosotros" / "Por qué elegirnos": ${sectionGenerated.url}`);
-      }
-      if (footerGenerated) {
-        lines.push(`- **Banner del CTA final (16:9)** — franja antes del footer, con el CTA grande encima: ${footerGenerated.url}`);
-      }
-      lines.push('');
-    }
-
     if (realCurated.length === 0) {
-      lines.push('### 📸 Sin fotos reales usables');
+      lines.push('### 📸 Sin fotos usables');
       lines.push('');
-      lines.push('Tras revisar las fotos de Google Maps, **ninguna da la talla para una web**. No inventes una galería ni rellenes con placeholders: no incluyas sección de fotos reales en absoluto. Las reseñas, la puntuación de Google y los datos de contacto son toda la prueba social que tienes. Compensa el hueco visual con tipografía grande, color y las imágenes ambientales. Al final del todo, sugiere al dueño que aporte 5-8 fotos profesionales.');
+      lines.push('Este negocio no tiene ni una foto que aguante en una web. **Haz la web sin fotos** — y hazla bien, que se puede: tipografía grande y con carácter, un sistema de color fuerte, mucho espacio en blanco, iconos coherentes (Lucide o similar) para los servicios, y la valoración de Google y los testimonios como protagonistas visuales.');
+      lines.push('');
+      lines.push('**No rellenes el hueco.** Nada de fotos de banco de imágenes, ilustraciones genéricas, imágenes generadas ni placeholders grises: una web honesta sin fotos transmite más confianza que una llena de fotos que obviamente no son de este negocio. Al final del todo, sugiere al dueño que aporte 5-8 fotos profesionales y dile qué debería salir en ellas.');
       lines.push('');
     } else {
       // Qué hacer con cada tipo de foto: una galería de "trabajos terminados" y una de
@@ -550,9 +520,8 @@ export function generatePromptMd(
 
     lines.push('### ⚠️ Reglas críticas sobre fotos');
     lines.push('');
-    lines.push('- **NUNCA mezcles reales con generadas en el mismo grid.** Las generadas tienen estética de IA editorial, las reales tienen ruido de móvil real. Mezclarlas grita "AI slop".');
-    lines.push('- **Reales → prueba social.** Generadas → ambiente y atmósfera.');
-    lines.push('- **Tratamiento visual idéntico** en todas las fotos del mismo grid: mismo aspect-ratio, mismo border-radius, misma sombra. Considera aplicar un sutil filtro de color uniforme (saturación ligeramente reducida) a las reales para unificarlas.');
+    lines.push('- **No añadas ninguna imagen que no esté en la lista de arriba.** Ni stock, ni generada, ni placeholder. Antes menos fotos que fotos que no son de este negocio.');
+    lines.push('- **Vienen de móviles distintos y años distintos.** Aplica el mismo tratamiento a todas las del mismo grid —igual aspect-ratio, igual border-radius, igual sombra— y considera un filtro sutil y uniforme (`filter: saturate(0.92) contrast(1.02)`) para que parezcan de la misma sesión. Compruébalo: si las afea, quítalo.');
     lines.push('- **Logos del negocio → solo favicon/header.** Nunca como decoración.');
     lines.push('- **Fotos de menú/carta → transcribe el texto** y maquétalo. Nunca muestres la carta fotografiada.');
     lines.push('');
@@ -618,8 +587,7 @@ export function generatePromptMd(
   lines.push('Las fotos reales vienen de orígenes mixtos. Para que no rompan la coherencia:');
   lines.push('');
   lines.push('- **TODAS las fotos del mismo grid** llevan: mismo `aspect-ratio`, `object-fit: cover`, mismo `border-radius`, misma sombra (o ninguna).');
-  lines.push('- **Aplica un filtro CSS sutil** a las fotos reales (no a las generadas) para unificar paletas: `filter: saturate(0.92) contrast(1.02);` o un overlay de color de marca al 8% de opacidad. Pruébalo y comprueba que no las hace feas.');
-  lines.push('- **Fotos generadas con IA**: van sin filtros, son las que marcan el look.');
+  lines.push('- **Aplica un filtro CSS sutil** para unificar paletas: `filter: saturate(0.92) contrast(1.02);` o un overlay de color de marca al 8% de opacidad. Pruébalo y comprueba que no las hace feas.');
   lines.push('- **NO mezcles fotos verticales y horizontales** en el mismo grid: fuerza un aspect-ratio y deja que `object-cover` recorte.');
   lines.push('- **Hover sutil**: zoom 1.03 con transición 400ms, opcional un overlay oscuro al 10%. Nada exagerado.');
   lines.push('- **Lightbox**: si hay más de 4 fotos en un grid, abre lightbox al click. Si hay 1-3, no es necesario.');
@@ -777,10 +745,11 @@ export function generatePromptMd(
   lines.push('');
   lines.push('Antes de dar la web por hecha, verifica:');
   lines.push('');
+  lines.push('- [ ] **Cada imagen de la web sale de la lista de la sección 5.** Ni una de stock, generada o placeholder colada de más');
+  lines.push('- [ ] Cada foto está en el puesto que tenía asignado, y ninguna aparece dos veces');
   lines.push('- [ ] Ninguna foto está suelta en medio de un párrafo de texto');
   lines.push('- [ ] Todas las fotos del mismo grid tienen el mismo aspect-ratio');
-  lines.push('- [ ] El hero usa **una sola** foto (no un collage)');
-  lines.push('- [ ] La galería completa está detrás de un botón "Ver todas las fotos" si hay más de 6');
+  lines.push('- [ ] El hero usa **una sola** foto (no un collage) — o ninguna, si no había foto de portada');
   lines.push('- [ ] Los CTAs llaman/escriben directo: `tel:`, `mailto:`, link de Google Maps');
   lines.push('- [ ] La puntuación de Google aparece visible como prueba social');
   lines.push('- [ ] Mapa de Google incrustado en la sección de contacto con las coordenadas reales');

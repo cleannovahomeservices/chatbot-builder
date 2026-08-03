@@ -4,7 +4,6 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import { checkExtractionLimit } from '@/lib/plans';
 import { classifyPhotos } from '@/lib/photo-classify';
 import { rankPhotos } from '@/lib/photo-rank';
-import { generateAmbientPhotos } from '@/lib/photo-generate';
 import { inferBusinessKind } from '@/lib/extraction-format';
 
 export const maxDuration = 300;
@@ -363,31 +362,23 @@ export async function POST(request: NextRequest) {
       responseFromOwnerDate: r.responseFromOwnerDate,
     }));
 
-    // Clasificar+rankear (Claude) corre en paralelo con generar (OpenAI gpt-image-1).
-    // El ranking depende de la clasificación, así que van encadenados dentro de la misma rama.
+    // Primero se puntúa cada foto por separado, después se rankean todas juntas:
+    // la comparación es la que detecta repetidas y las que rompen el conjunto.
     const category = place.categoryName ?? place.categories?.[0] ?? '';
     const kind = inferBusinessKind(businessData);
-    const [photoPass, generated] = await Promise.all([
-      (async () => {
-        const classified = uploadedUrls.length > 0 ? await classifyPhotos(uploadedUrls, category) : [];
-        const usable = classified.filter(m => m.quality !== 'mala');
-        const ranked = usable.length > 0
-          ? await rankPhotos(usable, kind, businessData.title ?? '', category)
-          : [];
-        return { classified, usable, ranked };
-      })(),
-      generateAmbientPhotos(kind, businessData.title ?? '', businessData.city, extractionId, category),
-    ]);
+    const classified = uploadedUrls.length > 0 ? await classifyPhotos(uploadedUrls, category) : [];
+    const usable = classified.filter(m => m.quality !== 'mala');
+    const ranked = usable.length > 0
+      ? await rankPhotos(usable, kind, businessData.title ?? '', category)
+      : [];
 
-    const { classified, usable, ranked } = photoPass;
     // El ranking solo ve las candidatas; las demás siguen en el ZIP pero sin papel asignado.
     const roleByUrl = new Map(ranked.map(m => [m.url, m]));
-    const realWithRoles = usable.map(m => roleByUrl.get(m.url) ?? { ...m, role: 'descartada' as const });
-    const chosen = realWithRoles.filter(m => m.role === 'hero' || m.role === 'destacada');
+    const allMetadata = usable.map(m => roleByUrl.get(m.url) ?? { ...m, role: 'descartada' as const });
+    const chosen = allMetadata.filter(m => m.role === 'hero' || m.role === 'destacada');
 
-    const allMetadata = [...realWithRoles, ...generated];
     const allUrls = allMetadata.map(m => m.url);
-    console.log(`[photos] reales: ${classified.length} (${usable.length} usables, ${chosen.length} elegidas para la web), generadas: ${generated.length}`);
+    console.log(`[photos] ${classified.length} analizadas, ${usable.length} usables, ${chosen.length} elegidas para la web`);
 
     await db.from('business_extractions').update({
       status: 'completed',
