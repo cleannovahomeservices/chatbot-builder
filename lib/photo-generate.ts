@@ -18,8 +18,9 @@ const SLOT_CONFIG: Record<Slot, SlotConfig> = {
     description: 'Imagen ambiental generada para el hero / portada',
   },
   ambient_section: {
+    // Esta se ve entera y a buen tamaño en la web; en 'low' se le nota el grano de IA.
     size: '1024x1024',
-    quality: 'low',
+    quality: 'medium',
     description: 'Imagen ambiental generada para una sección secundaria',
   },
   ambient_footer: {
@@ -48,10 +49,11 @@ const KIND_PROMPTS: Record<BusinessKind, { hero: string; section: string; footer
     section: 'Close-up of professional hair styling tools arranged on marble, blush pink background, flat lay',
     footer: 'Soft pastel abstract texture of silk fabric, blurred dreamy background, light pink and nude',
   },
+  // Genérico de servicios: casa terminada y bonita, nunca obra a medias ni antes/después feo.
   service: {
-    hero: 'Professional service team in clean uniforms working in a modern home interior, sunlight, sense of trust and competence',
-    section: 'Spotlessly clean modern kitchen, natural sunlight streaming through window, immaculate surfaces',
-    footer: 'Aerial view of a tidy suburban neighborhood at golden hour, soft warm tones',
+    hero: 'Beautiful finished living room of a well-kept home, immaculate and tidy, warm natural light through large windows, everything in its place, aspirational but realistic',
+    section: 'Spotlessly clean modern kitchen, natural sunlight streaming through window, immaculate surfaces, nothing out of place',
+    footer: 'Well-kept suburban home exterior at golden hour, tidy front garden, warm inviting light',
   },
   fitness: {
     hero: 'Modern industrial gym interior with concrete floor, black equipment, dramatic side lighting, empty space, motivational athletic atmosphere',
@@ -95,8 +97,62 @@ const KIND_PROMPTS: Record<BusinessKind, { hero: string; section: string; footer
   },
 };
 
-function buildPrompt(slot: Slot, kind: BusinessKind, businessName: string, city?: string): string {
-  const kp = KIND_PROMPTS[kind];
+// "service" mete en el mismo saco limpieza, reformas, jardinería y fontanería, y una
+// imagen de jardín no vende una reforma. La imagen siempre enseña el RESULTADO que el
+// cliente compra, ya terminado y bonito — nunca obra a medias, terreno pelado o desorden.
+const SERVICE_FLAVORS: Array<{ keys: string[]; hero: string; section: string; footer: string }> = [
+  {
+    keys: ['limpieza', 'cleaning', 'clean', 'fumigac', 'desinfec'],
+    hero: 'Immaculate bright living room, spotless surfaces, everything perfectly tidy, sunlight streaming in, the feeling of a home just deep-cleaned',
+    section: 'Spotless modern kitchen countertop gleaming in natural light, not a single item out of place',
+    footer: 'Pristine tidy bedroom with crisp white linens, morning light, absolutely immaculate',
+  },
+  {
+    keys: ['jardin', 'garden', 'landscap', 'paisaj', 'cesped', 'césped', 'poda'],
+    hero: 'Beautiful landscaped backyard garden in full green health, manicured lawn, mature plants, stone path, golden hour light, lush and cared for',
+    section: 'Close-up of a perfectly manicured green lawn edge meeting a flower bed, rich soil, healthy plants, morning dew',
+    footer: 'Well-kept front garden of a home at golden hour, trimmed hedges, blooming flowers, welcoming',
+  },
+  {
+    keys: ['reform', 'remodel', 'obra', 'construc', 'albañil', 'albanil', 'renovation'],
+    hero: 'Stunning newly renovated open-plan kitchen and living space, brand new finishes, warm wood and stone, large windows, completely finished and styled',
+    section: 'Beautifully renovated modern bathroom, new tiling, warm lighting, spa-like and completely finished',
+    footer: 'Freshly renovated home exterior at golden hour, crisp finishes, modern and complete',
+  },
+  {
+    keys: ['pintur', 'paint'],
+    hero: 'Freshly painted bright interior wall in a warm neutral tone, crisp clean edges, sunlight, the room looking brand new',
+    section: 'Close-up of a perfectly painted wall corner with crisp clean lines, soft natural light',
+    footer: 'Freshly painted house facade in warm light, immaculate finish, vivid and clean',
+  },
+  {
+    keys: ['fontaner', 'plumb', 'electric', 'climatiz', 'cerrajer', 'desatasc'],
+    hero: 'Modern bathroom with brand new fixtures working perfectly, gleaming chrome, warm light, everything finished and immaculate',
+    section: 'Close-up of new premium chrome fixtures and clean modern installation, soft light',
+    footer: 'Bright well-maintained modern home interior, everything functioning and in order, warm evening light',
+  },
+  {
+    keys: ['mudanz', 'moving', 'transport'],
+    hero: 'Bright new home interior on moving day, neatly stacked labeled boxes, sunlight, calm and organized, the feeling of a smooth move',
+    section: 'Neatly organized stack of moving boxes in a bright empty room with wooden floors',
+    footer: 'Warm welcoming new home exterior at golden hour, keys-in-hand feeling',
+  },
+];
+
+function serviceFlavor(businessName: string, category: string) {
+  const haystack = `${category} ${businessName}`.toLowerCase();
+  return SERVICE_FLAVORS.find(f => f.keys.some(k => haystack.includes(k))) ?? null;
+}
+
+function buildPrompt(
+  slot: Slot,
+  kind: BusinessKind,
+  businessName: string,
+  city: string | undefined,
+  category: string,
+): string {
+  const flavor = kind === 'service' ? serviceFlavor(businessName, category) : null;
+  const kp = flavor ?? KIND_PROMPTS[kind];
   const core = slot === 'hero' ? kp.hero : slot === 'ambient_section' ? kp.section : kp.footer;
   const cityHint = city ? ` Inspired by the vibe of ${city}.` : '';
   return `${core}.${cityHint} ${STYLE_BASE}`;
@@ -133,9 +189,10 @@ async function generateOne(
   businessName: string,
   city: string | undefined,
   extractionId: string,
+  category: string,
 ): Promise<PhotoMetadata | null> {
   try {
-    const prompt = buildPrompt(slot, kind, businessName, city);
+    const prompt = buildPrompt(slot, kind, businessName, city, category);
     const config = SLOT_CONFIG[slot];
 
     const result = await client.images.generate({
@@ -172,6 +229,7 @@ export async function generateAmbientPhotos(
   businessName: string,
   city: string | undefined,
   extractionId: string,
+  category = '',
 ): Promise<PhotoMetadata[]> {
   if (!process.env.OPENAI_API_KEY) {
     console.warn('[generate] OPENAI_API_KEY missing, skipping ambient generation');
@@ -182,7 +240,7 @@ export async function generateAmbientPhotos(
 
   const slots: Slot[] = ['hero', 'ambient_section', 'ambient_footer'];
   const results = await Promise.allSettled(
-    slots.map(slot => generateOne(client, slot, kind, businessName, city, extractionId)),
+    slots.map(slot => generateOne(client, slot, kind, businessName, city, extractionId, category)),
   );
 
   return results

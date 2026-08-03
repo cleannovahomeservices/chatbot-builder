@@ -3,13 +3,17 @@ import { getSession } from '@/lib/session';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { checkExtractionLimit } from '@/lib/plans';
 import { classifyPhotos } from '@/lib/photo-classify';
+import { rankPhotos } from '@/lib/photo-rank';
 import { generateAmbientPhotos } from '@/lib/photo-generate';
 import { inferBusinessKind } from '@/lib/extraction-format';
 
 export const maxDuration = 300;
 
 const APIFY_ACTOR = 'compass~crawler-google-places';
-const MAX_REVIEWS = 150;
+// Cada reseña se factura aparte (0,0005 $) y son el ~80% del coste de una extracción.
+// 30 ordenadas por relevancia dan más testimonios usables que 150 por fecha, y la
+// puntuación real del negocio la seguimos leyendo de totalScore/reviewsCount.
+const MAX_REVIEWS = 30;
 const MAX_IMAGES = 25;
 
 const ANON_MONTHLY_LIMIT = 2;
@@ -157,7 +161,7 @@ async function runApifyExtraction(googleUrl: string): Promise<ApifyPlace | null>
     maxImages: MAX_IMAGES,
     scrapePlaceDetailPage: true,
     scrapeImageAuthors: false,
-    reviewsSort: 'newest',
+    reviewsSort: 'mostRelevant',
     reviewsOrigin: 'all',
     maxCrawledPlacesPerSearch: 1,
     deeperCityScrape: false,
@@ -359,18 +363,31 @@ export async function POST(request: NextRequest) {
       responseFromOwnerDate: r.responseFromOwnerDate,
     }));
 
-    // Classify (Claude Vision) + Generate (OpenAI gpt-image-1) corren en paralelo
+    // Clasificar+rankear (Claude) corre en paralelo con generar (OpenAI gpt-image-1).
+    // El ranking depende de la clasificación, así que van encadenados dentro de la misma rama.
     const category = place.categoryName ?? place.categories?.[0] ?? '';
     const kind = inferBusinessKind(businessData);
-    const [classified, generated] = await Promise.all([
-      uploadedUrls.length > 0 ? classifyPhotos(uploadedUrls, category) : Promise.resolve([]),
-      generateAmbientPhotos(kind, businessData.title ?? '', businessData.city, extractionId),
+    const [photoPass, generated] = await Promise.all([
+      (async () => {
+        const classified = uploadedUrls.length > 0 ? await classifyPhotos(uploadedUrls, category) : [];
+        const usable = classified.filter(m => m.quality !== 'mala');
+        const ranked = usable.length > 0
+          ? await rankPhotos(usable, kind, businessData.title ?? '', category)
+          : [];
+        return { classified, usable, ranked };
+      })(),
+      generateAmbientPhotos(kind, businessData.title ?? '', businessData.city, extractionId, category),
     ]);
 
-    const realGood = classified.filter(m => m.quality !== 'mala');
-    const allMetadata = [...realGood, ...generated];
+    const { classified, usable, ranked } = photoPass;
+    // El ranking solo ve las candidatas; las demás siguen en el ZIP pero sin papel asignado.
+    const roleByUrl = new Map(ranked.map(m => [m.url, m]));
+    const realWithRoles = usable.map(m => roleByUrl.get(m.url) ?? { ...m, role: 'descartada' as const });
+    const chosen = realWithRoles.filter(m => m.role === 'hero' || m.role === 'destacada');
+
+    const allMetadata = [...realWithRoles, ...generated];
     const allUrls = allMetadata.map(m => m.url);
-    console.log(`[photos] reales: ${classified.length} (${realGood.length} usables, ${classified.length - realGood.length} descartadas), generadas: ${generated.length}`);
+    console.log(`[photos] reales: ${classified.length} (${usable.length} usables, ${chosen.length} elegidas para la web), generadas: ${generated.length}`);
 
     await db.from('business_extractions').update({
       status: 'completed',
@@ -388,7 +405,10 @@ export async function POST(request: NextRequest) {
       phone: businessData.phone,
       website: businessData.website,
       categoryName: businessData.categoryName,
-      reviewsCount: reviewsData.length,
+      // El total real del negocio en Google, no las que hemos extraído: con el tope
+      // de 30 un negocio de 247 reseñas mostraba "30 reseñas" y parecía un error.
+      reviewsCount: businessData.reviewsCount ?? reviewsData.length,
+      scrapedReviews: reviewsData.length,
       photosCount: allUrls.length,
       totalScore: businessData.totalScore,
       hasOpeningHours: (businessData.openingHours?.length ?? 0) > 0,

@@ -1,3 +1,4 @@
+import { effectiveScore } from './photo-classify';
 import type { PhotoMetadata, PhotoType } from './photo-classify';
 
 interface BusinessData {
@@ -190,15 +191,65 @@ const KIND_STRATEGY: Record<BusinessKind, {
   },
 };
 
-function pickTopReviews(reviews: ReviewData[]): ReviewData[] {
-  return reviews
-    .filter(r => r.text && r.text.length > 30)
-    .sort((a, b) => {
-      const starDiff = (b.stars ?? 0) - (a.stars ?? 0);
-      if (starDiff !== 0) return starDiff;
-      return (b.likesCount ?? 0) - (a.likesCount ?? 0);
-    })
-    .slice(0, 8);
+// Ordenar por estrellas y cortar por longitud mínima deja pasar el "Muy bien, repetiré"
+// de cinco estrellas, que como testimonio no dice nada. Lo que hace bueno a un testimonio
+// es que sea concreto: que nombre el servicio, el problema resuelto o a la persona.
+function scoreReview(r: ReviewData, topics: string[]): number {
+  const text = r.text ?? '';
+  let score = 0;
+
+  // Longitud, con techo: a partir de ~400 caracteres deja de sumar y empieza a ser un ladrillo.
+  score += Math.min(text.length, 400) / 10;
+
+  // Concreción: menciona temas que otros clientes también destacan.
+  const lower = text.toLowerCase();
+  score += topics.filter(t => lower.includes(t)).length * 12;
+
+  // Señales de que la reseña es de alguien real y le sirvió a otros.
+  score += Math.min(r.likesCount ?? 0, 10) * 3;
+  if (r.isLocalGuide) score += 5;
+  if ((r.reviewerNumberOfReviews ?? 0) >= 5) score += 4;
+  if (r.responseFromOwnerText) score += 4;
+
+  // 5 estrellas por delante de 4, pero sin que una de 5 vacía gane a una de 4 detallada.
+  score += (r.stars ?? 0) * 4;
+
+  // Los signos de exclamación en cadena y el todo-mayúsculas quedan mal maquetados.
+  if (/!{2,}/.test(text)) score -= 8;
+  if (text.length > 20 && text === text.toUpperCase()) score -= 15;
+
+  return score;
+}
+
+function pickTopReviews(reviews: ReviewData[], business: BusinessData): ReviewData[] {
+  const topics = (business.reviewsTags ?? [])
+    .slice(0, 10)
+    .map(t => t.title.toLowerCase())
+    .filter(t => t.length > 3);
+
+  const positive = reviews.filter(r => (r.stars ?? 0) >= 4 && r.text);
+
+  // Bar alto primero; si el negocio tiene pocas reseñas largas, se relaja antes que quedarse sin nada.
+  const pick = (minLength: number) =>
+    positive
+      .filter(r => (r.text ?? '').length >= minLength)
+      .sort((a, b) => scoreReview(b, topics) - scoreReview(a, topics));
+
+  let ordered = pick(80);
+  if (ordered.length < 3) ordered = pick(40);
+  if (ordered.length < 3) ordered = pick(1);
+
+  // Dos reseñas que empiezan igual suelen contar lo mismo; en una fila de testimonios canta.
+  const chosen: ReviewData[] = [];
+  const openings = new Set<string>();
+  for (const r of ordered) {
+    const opening = (r.text ?? '').toLowerCase().replace(/[^a-záéíóúñ ]/g, '').trim().slice(0, 25);
+    if (openings.has(opening)) continue;
+    openings.add(opening);
+    chosen.push(r);
+    if (chosen.length >= 5) break;
+  }
+  return chosen;
 }
 
 interface PhotoGroup {
@@ -211,12 +262,12 @@ interface PhotoGroup {
 const TYPE_GUIDANCE: Record<PhotoType, { title: string; guidance: string; priority: number }> = {
   exterior: {
     title: '🚪 Exterior / Fachada',
-    guidance: 'Úsalas en la sección "Visítanos" o "Cómo llegar". Una puede ir como background del hero (con overlay) si encaja con el tono.',
+    guidance: 'Encajan en "Visítanos" o "Cómo llegar", junto a la dirección y el mapa: ayudan a reconocer el sitio al llegar.',
     priority: 1,
   },
   interior: {
     title: '🏠 Interior del local',
-    guidance: 'Sección "El espacio" / "Sobre el lugar". Si el negocio depende del ambiente (restaurante, hotel, salón), usa la mejor en el hero.',
+    guidance: 'Sección "El espacio" / "Sobre el lugar". Dales tamaño: si el negocio se vende por su ambiente, una foto pequeña del interior no cuenta nada.',
     priority: 2,
   },
   producto: {
@@ -276,16 +327,6 @@ function groupPhotosByType(metadata: PhotoMetadata[]): PhotoGroup[] {
   return groups;
 }
 
-function pickHeroCandidates(metadata: PhotoMetadata[]): PhotoMetadata[] {
-  const explicit = metadata.filter(m => m.heroCandidate && m.quality === 'buena');
-  if (explicit.length > 0) return explicit.slice(0, 3);
-  const fallback = metadata
-    .filter(m => m.quality === 'buena' && ['exterior', 'interior', 'producto', 'trabajo_terminado'].includes(m.type))
-    .slice(0, 3);
-  if (fallback.length > 0) return fallback;
-  return metadata.filter(m => m.quality !== 'mala').slice(0, 1);
-}
-
 // Curaduría extrema: máximo 6 fotos reales, solo las buenas, priorizando por tipo y heroCandidate
 const REAL_TYPE_PRIORITY: Record<PhotoType, number> = {
   trabajo_terminado: 10,
@@ -301,11 +342,30 @@ const REAL_TYPE_PRIORITY: Record<PhotoType, number> = {
 };
 
 function curateRealPhotos(metadata: PhotoMetadata[], maxCount = 6): PhotoMetadata[] {
-  const goodOnly = metadata.filter(m => m.quality === 'buena' && !m.generated);
-  return goodOnly
+  const real = metadata.filter(m => !m.generated);
+
+  // Si pasó el ranking comparativo, esa decisión manda: ya se tomó viendo todas las
+  // fotos juntas, que es información que aquí no tenemos.
+  const ranked = real.filter(m => m.role === 'hero' || m.role === 'destacada');
+  if (ranked.length > 0) {
+    return ranked
+      .slice()
+      .sort((a, b) => {
+        if ((a.role === 'hero') !== (b.role === 'hero')) return a.role === 'hero' ? -1 : 1;
+        return 0;
+      })
+      .slice(0, maxCount);
+  }
+  // Si nadie asignó papel (extracciones antiguas, o el ranking falló), ordena por lo que haya.
+  if (real.some(m => m.role === 'descartada')) return [];
+
+  return real
+    .filter(m => m.quality === 'buena')
     .slice()
     .sort((a, b) => {
       if (a.heroCandidate !== b.heroCandidate) return a.heroCandidate ? -1 : 1;
+      const byScore = effectiveScore(b) - effectiveScore(a);
+      if (byScore !== 0) return byScore;
       return REAL_TYPE_PRIORITY[b.type] - REAL_TYPE_PRIORITY[a.type];
     })
     .slice(0, maxCount);
@@ -349,9 +409,8 @@ export function generatePromptMd(
   lines.push('Para esta sección, **piensa primero, código después**. Antes de generar nada:');
   lines.push('');
   lines.push('1. **Identifica el tono** del negocio leyendo las reseñas y la categoría. ¿Es cercano? ¿Premium? ¿Técnico? El copy debe sonar a eso.');
-  lines.push('2. **Decide la asignación de fotos**: qué foto va de hero, cuáles destacadas, cuáles a galería. Asigna cada foto a una función concreta. **No uses una foto sin saber qué papel cumple.**');
-  lines.push('3. **Planifica el sistema de diseño antes de codear**: paleta (3-4 colores máximo), 2 fuentes (display + sans-serif), escala de espaciado (4, 8, 16, 24, 32, 48, 64, 96px), border-radius coherente.');
-  lines.push('4. **Decide qué reseñas usar como testimonios** (3-5 máximo, no las 8). Las pones tal cual, sin editar.');
+  lines.push('2. **Planifica el sistema de diseño antes de codear**: paleta (3-4 colores máximo), 2 fuentes (display + sans-serif), escala de espaciado (4, 8, 16, 24, 32, 48, 64, 96px), border-radius coherente.');
+  lines.push('3. **Las fotos y las reseñas ya están elegidas y asignadas** en las secciones 5 y 9. No vuelvas a elegir: hay un puesto concreto para cada foto y una lista cerrada de testimonios. Si crees que sobra alguna, quítala — pero no metas ninguna que no esté ahí.');
   lines.push('');
 
   // ========== ESTRATEGIA VISUAL ==========
@@ -392,6 +451,8 @@ export function generatePromptMd(
   lines.push('- **Galería con lightbox** si hay más de 6 fotos.');
   lines.push(`- ${strategy.photoStrategy}`);
   lines.push('');
+  lines.push('⚠️ Esa estrategia describe el escaparate ideal. **Si pide más fotos de las que hay en la sección 5, manda la sección 5**: adapta el layout a las fotos que tienes en vez de rellenar. Una galería de 4 fotos buenas bien maquetadas se ve mejor que un masonry de 9 con 5 mediocres.');
+  lines.push('');
 
   // ========== ASIGNACIÓN DE FOTOS ==========
   if (photoUrls.length === 0) {
@@ -413,69 +474,78 @@ export function generatePromptMd(
     lines.push('');
     lines.push('| Tipo | Origen | Función | Dónde usarlas |');
     lines.push('|---|---|---|---|');
-    lines.push(`| **Fotos reales** del negocio | Google Maps (curadas) | Prueba social: demuestran que el negocio existe y trabaja | Solo en secciones de "trabajos realizados", "productos reales", "equipo", "el espacio". NUNCA como hero genérico ni decoración. |`);
-    lines.push(`| **Fotos generadas con IA** | OpenAI gpt-image-1 | Aportan coherencia visual y atmósfera | Solo como hero ambiental, background de secciones decorativas, footer. NUNCA como prueba de "esto es nuestro trabajo". |`);
-    lines.push('');
-    lines.push('Las URLs son permanentes (CDN nuestro), úsalas con `<img>` o `next/image`.');
+    lines.push(`| **Fotos reales** del negocio | Google Maps (ya curadas) | Prueba social: demuestran que el negocio existe y trabaja | En el puesto que tienen asignado abajo. Nunca como relleno decorativo. |`);
+    lines.push(`| **Fotos generadas con IA** | OpenAI gpt-image-1 | Aportan coherencia visual y atmósfera | Solo como fondo o acento visual. NUNCA con un caption que sugiera "esto es nuestro". |`);
     lines.push('');
 
-    // ---------- Fotos generadas (ambientales) ----------
-    if (generated.length > 0) {
-      lines.push('### 🎨 Fotos generadas con IA — para HERO y BACKGROUNDS');
+    // Una foto real buena gana siempre al hero generado: es el negocio de verdad.
+    const realHero = realCurated.find(m => m.role === 'hero');
+    const realGallery = realCurated.filter(m => m !== realHero);
+
+    lines.push('### 🎯 Asignación de puestos (esto ya está decidido)');
+    lines.push('');
+    lines.push('Cada foto de abajo tiene un puesto asignado. **Úsala en ese puesto y en ninguno otro.** No las reordenes, no las repitas en dos secciones, no metas fotos que no estén en esta lista. Las URLs son permanentes (CDN nuestro), sirven con `<img>` o `next/image`.');
+    lines.push('');
+
+    if (realHero) {
+      lines.push(`**HERO — foto real del negocio.** Va a pantalla completa en la primera sección, con overlay oscuro del 30-40% para que se lea el titular encima:`);
       lines.push('');
-      lines.push('Estas 3 imágenes están generadas con IA específicamente para este negocio. Son coherentes entre sí y aportan el "look" de la web. Úsalas SIEMPRE — son el eje visual.');
+      lines.push(`- ${realHero.url}`);
+      lines.push(`  - _${realHero.description || 'foto del negocio'}_`);
+      if (realHero.roleReason) lines.push(`  - Elegida porque: ${realHero.roleReason}`);
       lines.push('');
       if (heroGenerated) {
-        lines.push(`- **Hero / portada (16:9)** — usar como background del hero a pantalla completa con overlay oscuro 30-50% para que destaque el título:`);
-        lines.push(`  - ${heroGenerated.url}`);
+        lines.push(`El hero es una foto **real**, así que la imagen generada de portada baja a background de una sección intermedia (con overlay, sin caption que insinúe que es del negocio): ${heroGenerated.url}`);
         lines.push('');
       }
-      if (sectionGenerated) {
-        lines.push(`- **Background de sección secundaria (1:1)** — para sección "Sobre nosotros" / "Nuestros valores" / "Por qué elegirnos", como imagen lateral o detalle visual:`);
-        lines.push(`  - ${sectionGenerated.url}`);
-        lines.push('');
-      }
-      if (footerGenerated) {
-        lines.push(`- **Background del CTA final / footer (16:9)** — banner final antes del footer, con CTA grande encima:`);
-        lines.push(`  - ${footerGenerated.url}`);
-        lines.push('');
-      }
-      lines.push('⚠️ Estas fotos son ambientales, NO muestran el negocio real. **Nunca** las uses con captions tipo "Foto de nuestra tienda" o "Nuestros trabajos". Son recursos visuales puros.');
+    } else if (heroGenerated) {
+      lines.push('**HERO — imagen generada.** Ninguna foto real del negocio da la talla para abrir la web, así que el hero es esta imagen ambiental generada con IA. A pantalla completa con overlay oscuro 30-50%. **No le pongas caption ni pie de foto**: es un recurso visual, no una foto del local.');
+      lines.push('');
+      lines.push(`- ${heroGenerated.url}`);
       lines.push('');
     }
 
-    // ---------- Fotos reales (curadas, máx 6) ----------
-    if (realCurated.length === 0) {
-      lines.push('### 📸 Fotos reales del negocio');
+    if (realGallery.length > 0) {
+      lines.push(`**GALERÍA / PRUEBA SOCIAL — ${realGallery.length} ${realGallery.length === 1 ? 'foto real' : 'fotos reales'}, en este orden.** Son las únicas fotos reales que debes mostrar: ya descartamos las repetidas, las flojas y las que rompían el conjunto. Van todas juntas en una sola sección, con el mismo aspect-ratio y el mismo border-radius:`);
       lines.push('');
-      lines.push('Tras filtrar las fotos de Google Maps por calidad, **no hay ninguna foto real usable**. Resultado: no incluyas sección de galería real ni de "trabajos realizados". Las reseñas, la puntuación y los datos de contacto serán toda la prueba social. Compensa el espacio visual con las imágenes generadas y un buen sistema tipográfico.');
-      lines.push('');
-    } else if (realCurated.length < 3) {
-      lines.push(`### 📸 Fotos reales del negocio (solo ${realCurated.length} usables)`);
-      lines.push('');
-      lines.push('Hay pocas fotos reales utilizables. **NO hagas una galería con menos de 3 fotos** — queda vacía. En su lugar, intégralas individualmente como acentos dentro del contenido (1 foto al lado del bloque "sobre nosotros", 1 foto en la sección de testimonios).');
-      lines.push('');
-      for (const p of realCurated) {
-        lines.push(`- ${p.url} — _${p.description || 'foto del negocio'}_ (tipo: ${p.type})`);
+      for (const [i, p] of realGallery.entries()) {
+        lines.push(`${i + 1}. ${p.url}`);
+        lines.push(`   - _${p.description || 'foto del negocio'}_ (${p.type})`);
+        if (p.roleReason) lines.push(`   - Elegida porque: ${p.roleReason}`);
       }
+      lines.push('');
+      if (realGallery.length < 3) {
+        lines.push('⚠️ Son menos de 3: **no hagas un grid con ellas**, quedaría vacío. Intégralas sueltas como acento dentro del contenido (una al lado del bloque "sobre nosotros", otra junto a los testimonios).');
+        lines.push('');
+      }
+    }
+
+    if (sectionGenerated || footerGenerated) {
+      lines.push('**AMBIENTE — imágenes generadas con IA.** Aportan atmósfera y coherencia visual. **No muestran el negocio real**, así que nunca las acompañes de captions tipo "nuestra tienda" o "un trabajo nuestro", ni las mezcles en el mismo grid que las reales:');
+      lines.push('');
+      if (sectionGenerated) {
+        lines.push(`- **Sección secundaria (1:1)** — imagen lateral en "Sobre nosotros" / "Por qué elegirnos": ${sectionGenerated.url}`);
+      }
+      if (footerGenerated) {
+        lines.push(`- **Banner del CTA final (16:9)** — franja antes del footer, con el CTA grande encima: ${footerGenerated.url}`);
+      }
+      lines.push('');
+    }
+
+    if (realCurated.length === 0) {
+      lines.push('### 📸 Sin fotos reales usables');
+      lines.push('');
+      lines.push('Tras revisar las fotos de Google Maps, **ninguna da la talla para una web**. No inventes una galería ni rellenes con placeholders: no incluyas sección de fotos reales en absoluto. Las reseñas, la puntuación de Google y los datos de contacto son toda la prueba social que tienes. Compensa el hueco visual con tipografía grande, color y las imágenes ambientales. Al final del todo, sugiere al dueño que aporte 5-8 fotos profesionales.');
       lines.push('');
     } else {
-      lines.push(`### 📸 Fotos reales del negocio (${realCurated.length} curadas — las mejores)`);
+      // Qué hacer con cada tipo de foto: una galería de "trabajos terminados" y una de
+      // "producto" se maquetan distinto aunque las dos sean fotos bonitas.
+      lines.push('**Cómo tratar cada tipo de foto que te hemos dado:**');
       lines.push('');
-      lines.push('Estas son las **únicas** fotos reales que debes usar (ya filtramos las que no eran usables). Úsalas en una sola sección de prueba social, con tratamiento visual uniforme (mismo aspect-ratio, mismo border-radius, opcionalmente un sutil filtro o overlay para unificar look).');
-      lines.push('');
-      // Agrupar por tipo (solo las curadas)
-      const groups = groupPhotosByType(realCurated);
-      for (const group of groups) {
-        lines.push(`**${group.title}** (${group.photos.length}):`);
-        lines.push('');
-        lines.push(`> ${group.guidance}`);
-        lines.push('');
-        for (const p of group.photos) {
-          lines.push(`- ${p.url} — ${p.description || 'foto del negocio'}`);
-        }
-        lines.push('');
+      for (const group of groupPhotosByType(realCurated)) {
+        lines.push(`- **${group.title}** — ${group.guidance}`);
       }
+      lines.push('');
     }
 
     lines.push('### ⚠️ Reglas críticas sobre fotos');
@@ -607,10 +677,50 @@ export function generatePromptMd(
     lines.push('');
   }
 
-  if (typeof business.totalScore === 'number' && Number.isFinite(business.totalScore)) {
-    lines.push('### Reputación en Google');
-    lines.push(`- **Puntuación media:** ${business.totalScore.toFixed(1)} / 5${typeof business.reviewsCount === 'number' ? ` (${business.reviewsCount} reseñas)` : ''}`);
-    lines.push('- Muestra esta puntuación en el hero o cerca del CTA como prueba social ("4.8 ★ en Google – 234 reseñas").');
+  const hasScore = typeof business.totalScore === 'number' && Number.isFinite(business.totalScore);
+  const totalReviews = typeof business.reviewsCount === 'number' && Number.isFinite(business.reviewsCount)
+    ? business.reviewsCount
+    : null;
+
+  const nReviews = totalReviews !== null ? totalReviews.toLocaleString('es-ES') : '';
+
+  if (hasScore || totalReviews !== null) {
+    lines.push('### Reputación en Google (los números que van en la web)');
+    lines.push('');
+    if (hasScore && totalReviews !== null) {
+      lines.push(`- **${business.totalScore!.toFixed(1)} sobre 5, con ${nReviews} reseñas.** Estos son los números completos del negocio en Google.`);
+    } else if (hasScore) {
+      lines.push(`- **Puntuación media: ${business.totalScore!.toFixed(1)} sobre 5.**`);
+    } else {
+      lines.push(`- **${nReviews} reseñas en Google.**`);
+    }
+
+    // Distinción crítica: extraemos una muestra, pero la web debe presumir del total real.
+    if (totalReviews !== null && reviews.length > 0 && totalReviews > reviews.length) {
+      lines.push(`- ⚠️ Abajo tienes **${reviews.length} reseñas de esas ${nReviews}** (una muestra de las más relevantes, no todas). **Nunca escribas que el negocio tiene ${reviews.length} reseñas** — tiene ${nReviews}. La cifra que va en la web es siempre el total.`);
+    }
+
+    if (business.reviewsDistribution) {
+      const dist = business.reviewsDistribution;
+      const five = Number(dist.fiveStar ?? dist['5'] ?? 0);
+      const four = Number(dist.fourStar ?? dist['4'] ?? 0);
+      const sum = Object.values(dist).reduce((a, b) => a + (Number(b) || 0), 0);
+      if (sum > 0 && Number.isFinite(five)) {
+        const pctFive = Math.round((five / sum) * 100);
+        const pctTop = Math.round(((five + four) / sum) * 100);
+        lines.push(`- **Reparto:** ${pctFive}% de las reseñas son de 5 estrellas; ${pctTop}% son de 4 o 5.`);
+        if (pctFive >= 70) {
+          lines.push(`  - Es un dato fuerte: úsalo tal cual como titular de la sección de reseñas ("El ${pctFive}% de nuestros clientes nos puntúa con 5 estrellas").`);
+        }
+      }
+    }
+
+    lines.push('');
+    if (hasScore && totalReviews !== null && totalReviews >= 10) {
+      lines.push(`**Dónde ponerlo:** la valoración va visible en el hero, junto al CTA principal, en formato corto y con las estrellas dibujadas: \`★ ${business.totalScore!.toFixed(1)} · ${nReviews} reseñas en Google\`. Repítelo como encabezado de la sección de testimonios. Es la prueba social más barata y la más creíble que tiene este negocio — no la escondas en el footer.`);
+    } else if (totalReviews !== null && totalReviews < 10) {
+      lines.push('**Ojo:** son pocas reseñas. No pongas el contador en el hero — un "3 reseñas en Google" resta en vez de sumar. Muestra la valoración solo dentro de la sección de testimonios, sin el número total.');
+    }
     lines.push('');
   }
 
@@ -643,17 +753,21 @@ export function generatePromptMd(
   }
 
   // ========== RESEÑAS ==========
-  const topReviews = pickTopReviews(reviews);
+  const topReviews = pickTopReviews(reviews, business);
   if (topReviews.length > 0) {
-    lines.push('## 9. Reseñas destacadas para usar como testimonios');
+    lines.push(`## 9. Testimonios (${topReviews.length}, ya elegidos)`);
     lines.push('');
-    lines.push('Elige 3-5 de estas para la sección de testimonios. **Pégalas tal cual, no las reescribas.** En `reviews.md` tienes todas las demás.');
+    lines.push(`Usa **estas ${topReviews.length} y solo estas**. Ya están filtradas: son las de 4-5 estrellas más concretas, sin repetir el mismo mensaje y sin las de una línea que no dicen nada. No vuelvas a elegir entre las de \`reviews.md\` — ese archivo es material de consulta, no un menú.`);
+    lines.push('');
+    lines.push('**Pégalas literalmente, sin reescribir ni corregir la ortografía.** Una reseña con una falta parece real; una reseña pulida parece inventada, y eso mata la prueba social. Si una es larguísima, córtala por una frase completa y remata con «…», pero no la reformules.');
     lines.push('');
     for (const r of topReviews) {
       lines.push(`> "${r.text}"`);
       lines.push(`> — **${r.name}** · ${'★'.repeat(r.stars ?? 0)}${r.publishAt ? ` · ${r.publishAt}` : ''}`);
       lines.push('');
     }
+    lines.push('Maquétalas en cards de altura uniforme (`items-stretch`, no dejes cards de distinto alto en la misma fila) con la valoración de Google como encabezado de la sección. Si alguna tiene respuesta del propietario en `reviews.md`, puedes añadirla debajo en gris más pequeño: demuestra que el negocio contesta.');
+    lines.push('');
   }
 
   // ========== CHECKLIST FINAL ==========
