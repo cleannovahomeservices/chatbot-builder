@@ -4,14 +4,19 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import { checkExtractionLimit } from '@/lib/plans';
 import { classifyPhotos } from '@/lib/photo-classify';
 import { rankPhotos } from '@/lib/photo-rank';
+import { curateReviews } from '@/lib/review-filter';
 import { inferBusinessKind } from '@/lib/extraction-format';
 
 export const maxDuration = 300;
 
 const APIFY_ACTOR = 'compass~crawler-google-places';
 // Cada reseña se factura aparte (0,0005 $) y son el ~80% del coste de una extracción.
-// 30 ordenadas por relevancia dan más testimonios usables que 150 por fecha, y la
-// puntuación real del negocio la seguimos leyendo de totalScore/reviewsCount.
+// 30 dan más testimonios usables que 150 por fecha, y la puntuación real del negocio
+// la seguimos leyendo de totalScore/reviewsCount.
+//
+// `highestRanking` en vez de `mostRelevant`: medido sobre Sushiko, con relevancia salían
+// 9 de 5 estrellas entre 30; con este orden, 30 de 30 y 27 con más de 80 caracteres.
+// Mismo coste. La muestra solo alimenta los testimonios, nunca la nota que se publica.
 const MAX_REVIEWS = 30;
 const MAX_IMAGES = 25;
 
@@ -58,6 +63,22 @@ interface ApifyPlace {
   reviews?: ApifyReview[];
   imageUrls?: string[];
   images?: Array<{ imageUrl: string; authorName?: string; uploadedAt?: string }>;
+}
+
+/** Lo que se guarda en la columna `reviews`, con el resultado del pase de curación. */
+interface CuratableReview {
+  name?: string;
+  stars?: number;
+  text?: string | null;
+  publishedAtDate?: string;
+  publishAt?: string;
+  likesCount?: number;
+  isLocalGuide?: boolean;
+  reviewerNumberOfReviews?: number;
+  responseFromOwnerText?: string | null;
+  responseFromOwnerDate?: string | null;
+  curatedText?: string;
+  curatedReason?: string;
 }
 
 interface ApifyReview {
@@ -160,7 +181,7 @@ async function runApifyExtraction(googleUrl: string): Promise<ApifyPlace | null>
     maxImages: MAX_IMAGES,
     scrapePlaceDetailPage: true,
     scrapeImageAuthors: false,
-    reviewsSort: 'mostRelevant',
+    reviewsSort: 'highestRanking',
     reviewsOrigin: 'all',
     maxCrawledPlacesPerSearch: 1,
     deeperCityScrape: false,
@@ -349,7 +370,7 @@ export async function POST(request: NextRequest) {
       reviewsTags: place.reviewsTags,
     };
 
-    const reviewsData = (place.reviews ?? []).map(r => ({
+    const reviewsData: CuratableReview[] = (place.reviews ?? []).map(r => ({
       name: r.name,
       stars: r.stars,
       text: r.text ?? r.textTranslated,
@@ -365,6 +386,9 @@ export async function POST(request: NextRequest) {
     // Primero se puntúa cada foto por separado, después se rankean todas juntas:
     // la comparación es la que detecta repetidas y las que rompen el conjunto.
     const category = place.categoryName ?? place.categories?.[0] ?? '';
+
+    // Marca cuáles se publican como testimonio. Las 30 siguen en el ZIP.
+    await curateReviews(reviewsData, place.title ?? '', category);
     const kind = inferBusinessKind(businessData);
     const classified = uploadedUrls.length > 0 ? await classifyPhotos(uploadedUrls, category) : [];
     const usable = classified.filter(m => m.quality !== 'mala');

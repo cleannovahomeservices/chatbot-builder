@@ -1,5 +1,6 @@
 import { effectiveScore } from './photo-classify';
 import type { PhotoMetadata, PhotoType } from './photo-classify';
+import { checkTestimonial, isPublishable, trimToSentence } from './review-hygiene';
 
 interface BusinessData {
   title?: string;
@@ -42,6 +43,8 @@ interface ReviewData {
   reviewerNumberOfReviews?: number;
   responseFromOwnerText?: string | null;
   responseFromOwnerDate?: string | null;
+  /** Texto elegido por el pase de curación (`lib/review-filter`), ya recortado. */
+  curatedText?: string;
 }
 
 export type BusinessKind =
@@ -85,109 +88,216 @@ export function inferBusinessKind(business: BusinessData): BusinessKind {
   return 'generic';
 }
 
-const KIND_STRATEGY: Record<BusinessKind, {
+// Una dirección de arte concreta —con hex y tipografías con nombre— da mejor resultado
+// que describir una sensación ("cálido y acogedor"), y de paso se salta el paso de
+// "Design guidance" de Lovable, que si no rellena él con su estilo por defecto.
+interface ArtDirection {
+  /** En una frase: qué tiene que sentir quien entra. */
   vibe: string;
-  palette: string;
-  heroLayout: string;
-  photoStrategy: string;
-  primarySections: string[];
-  ctaPrimary: string;
-}> = {
+  bg: string;
+  surface: string;
+  text: string;
+  muted: string;
+  primary: string;
+  accent: string;
+  /** true si el fondo es oscuro: cambia cómo se tratan overlays y sombras. */
+  dark?: boolean;
+  displayFont: string;
+  bodyFont: string;
+  radius: string;
+  hero: string;
+  cta: string;
+  /** Secciones de la página, con lo que va dentro de cada una. */
+  sections: string[];
+}
+
+const KIND_ART: Record<BusinessKind, ArtDirection> = {
   food: {
-    vibe: 'Apetitoso, cálido y acogedor. Las fotos son producto: tienen que abrir boca.',
-    palette: 'Cálidos y tierra: terracota, mostaza, oliva, crema. Acentos en negro o burdeos. Evita azules fríos.',
-    heroLayout: 'Hero a pantalla completa con UNA foto del plato/local más fotogénico de fondo (con overlay oscuro 40%) y un título tipo serif elegante. CTA grande: "Reservar mesa".',
-    photoStrategy: 'Las fotos son protagonistas. Distribúyelas así: 1 como hero background, 6-9 en un grid masonry estilo Instagram en la sección "El menú en imágenes" o "Nuestra cocina", y las restantes en una galería con lightbox al final. NUNCA pongas fotos sueltas en medio del texto.',
-    primarySections: ['Hero', 'Sobre el lugar (1 párrafo + 1-2 fotos)', 'Menú destacado / Especialidades', 'Galería visual (masonry)', 'Reseñas', 'Reserva / Contacto', 'Horarios + Mapa'],
-    ctaPrimary: 'Reservar mesa / Llamar',
+    vibe: 'Apetitoso y cálido, de sitio al que vuelves. Nada corporativo.',
+    bg: '#FBF7F1', surface: '#F3EADF', text: '#1C1614', muted: '#6B5B4F',
+    primary: '#B4472A', accent: '#C9A227',
+    displayFont: 'Fraunces', bodyFont: 'Inter', radius: '14px',
+    hero: 'A pantalla completa con la foto de portada de fondo, overlay oscuro al 45% y el nombre del negocio en display grande. Debajo: una frase de qué se come aquí, el badge de valoración y el botón de llamar.',
+    cta: 'Reservar mesa',
+    sections: [
+      '**Hero** — nombre, una frase, valoración de Google, botón de llamar',
+      '**Qué se come aquí** — dos párrafos sobre la cocina y el sitio, con una foto al lado',
+      '**Especialidades** — 4-6 cards de los platos o categorías que aparecen en los datos, con nombre y una línea. Sin precios',
+      '**Galería** — las fotos de la sección de fotos, mismo aspect-ratio',
+      '**Lo que dicen** — los testimonios en cards de igual altura',
+      '**Visítanos** — dirección, mapa incrustado, horarios, teléfono',
+    ],
   },
   lodging: {
-    vibe: 'Aspiracional, sereno y luminoso. Estilo Airbnb/Booking moderno.',
-    palette: 'Neutros premium: blanco hueso, beige, gris piedra, verde salvia. Acentos en madera natural. Tipografía serif para el branding.',
-    heroLayout: 'Hero full-width con la foto más impresionante del alojamiento (exterior o estancia principal). Sin overlay o muy ligero. Título grande, descripción corta, dos CTAs: "Ver disponibilidad" + "Galería".',
-    photoStrategy: 'Galería tipo Airbnb: 1 foto grande a la izquierda + 4 fotos en grid 2x2 a la derecha en el hero/inicio, con botón "Ver todas". Después secciones temáticas: "El alojamiento", "La zona", "Comodidades", cada una con 1-3 fotos integradas al contenido. Lightbox completo con todas las fotos al final.',
-    primarySections: ['Hero con galería Airbnb', 'Sobre el alojamiento', 'Galería completa', 'Comodidades / Servicios', 'Entorno y actividades cercanas', 'Reseñas de huéspedes', 'Disponibilidad / Reserva', 'Ubicación'],
-    ctaPrimary: 'Ver disponibilidad / Reservar',
+    vibe: 'Sereno y luminoso, de escapada apetecible. Mucho aire.',
+    bg: '#FAF8F5', surface: '#EFEAE3', text: '#2A2724', muted: '#736C63',
+    primary: '#3F5A4A', accent: '#C4A882',
+    displayFont: 'DM Serif Display', bodyFont: 'Inter', radius: '10px',
+    hero: 'Foto de portada a ancho completo sin overlay o con uno muy ligero (20%), título en serif y una línea de ubicación. Botón "Consultar disponibilidad" y, debajo, el badge de valoración.',
+    cta: 'Consultar disponibilidad',
+    sections: [
+      '**Hero** — nombre, ubicación en una línea, valoración, CTA',
+      '**El alojamiento** — qué es y para quién, con las comodidades declaradas como lista de iconos',
+      '**Galería** — las fotos, en grid uniforme',
+      '**La zona** — qué hay alrededor, usando la ciudad y el barrio reales',
+      '**Opiniones de huéspedes** — los testimonios',
+      '**Cómo llegar y reservar** — dirección, mapa, horarios de check-in si constan, teléfono',
+    ],
   },
   beauty: {
-    vibe: 'Refinado, femenino, "instagrameable". Estilo editorial.',
-    palette: 'Rosados empolvados, nudes, dorado champagne, blanco crema, negro. Tipografía sans-serif fina + un display serif.',
-    heroLayout: 'Hero dividido 60/40: a la izquierda título + claim + CTA "Reservar cita", a la derecha foto cuadrada/vertical del trabajo más destacado o del salón.',
-    photoStrategy: 'Las fotos son "trabajos realizados" → trátalas como portfolio. Sección "Nuestros trabajos" con grid 3 columnas (2 en móvil), aspect-ratio 1:1, hover sutil con zoom. NO mezcles fotos del local con fotos de trabajos: si las hay, ponlas en "Nuestro espacio" aparte.',
-    primarySections: ['Hero', 'Servicios + precios', 'Nuestros trabajos (galería grid)', 'Nuestro espacio (1-3 fotos integradas)', 'Reseñas', 'Reservar online', 'Contacto + horarios'],
-    ctaPrimary: 'Reservar cita',
+    vibe: 'Editorial y cuidado, como una revista. Fotografía grande y tipografía fina.',
+    bg: '#FDF9F7', surface: '#F6ECE9', text: '#241C1E', muted: '#7A6A6D',
+    primary: '#B07C86', accent: '#BFA36F',
+    displayFont: 'Italiana', bodyFont: 'Jost', radius: '4px',
+    hero: 'Dividido 55/45: a la izquierda el nombre en display, una frase y el botón de reservar; a la derecha la foto de portada en vertical (aspect-ratio 4:5) sin recortar la cara si la hay.',
+    cta: 'Reservar cita',
+    sections: [
+      '**Hero** — nombre, frase, CTA de reserva, foto vertical',
+      '**Servicios** — lista limpia con nombre y una línea cada uno, sacada de las categorías y de lo que mencionan los clientes. Sin precios',
+      '**Nuestros trabajos** — las fotos en grid 1:1',
+      '**Lo que dicen** — los testimonios',
+      '**Reserva** — teléfono, dirección, horarios, mapa',
+    ],
   },
   service: {
-    vibe: 'Profesional, confiable, directo. Las fotos son PRUEBA SOCIAL de resultados, no decoración.',
-    palette: 'Azules y grises corporativos (#0A66C2 tipo LinkedIn, #1F2937, blanco). Acento en verde o amarillo para "confianza". Tipografía sans-serif sólida (Inter, Manrope).',
-    heroLayout: 'Hero con título claro tipo "X servicios en [ciudad] desde [año]", subtítulo con beneficio concreto, CTA "Pide presupuesto gratis" + teléfono visible grande. A la derecha: UNA foto del trabajo más representativo terminado, NO una foto cualquiera.',
-    photoStrategy: 'Las fotos suelen ser de trabajos terminados → úsalas como PRUEBA. Sección "Trabajos realizados" o "Antes / Después" con grid de 6-8 fotos máximo, cada una con caption corto ("Limpieza de oficina 200m², Madrid, mayo 2025"). NO pongas más de 8 fotos en la página principal — el resto van en una galería aparte o en una página /trabajos. NUNCA fotos sueltas decorando el texto.',
-    primarySections: ['Hero con teléfono visible', 'Servicios (cards con icono, NO fotos)', 'Cómo trabajamos (3-4 pasos)', 'Trabajos realizados (galería curada)', 'Reseñas verificadas de Google', 'Zona de servicio + ciudades', 'Pedir presupuesto (form simple)'],
-    ctaPrimary: 'Pedir presupuesto gratis',
+    vibe: 'Profesional y directo. Que en tres segundos se entienda qué hace y cómo llamarle.',
+    bg: '#FFFFFF', surface: '#F4F6F8', text: '#0F172A', muted: '#5B6472',
+    primary: '#1D4ED8', accent: '#16A34A',
+    displayFont: 'Manrope', bodyFont: 'Inter', radius: '10px',
+    hero: 'Sin foto de fondo: titular grande a la izquierda con el servicio y la ciudad, subtítulo con el beneficio concreto, teléfono en grande como botón y un botón de presupuesto. A la derecha, la foto de portada en un bloque con esquinas redondeadas.',
+    cta: 'Pedir presupuesto',
+    sections: [
+      '**Hero** — qué servicio y dónde, teléfono grande, CTA',
+      '**Servicios** — cards con icono (Lucide) y una línea cada uno. Sin fotos dentro de las cards',
+      '**Cómo trabajamos** — 3 o 4 pasos numerados, del contacto al trabajo terminado',
+      '**Trabajos realizados** — las fotos, con un pie corto cada una',
+      '**Lo que dicen** — los testimonios',
+      '**Zona de trabajo** — la ciudad y las localidades cercanas, con el mapa',
+      '**Pedir presupuesto** — formulario corto (nombre, teléfono, qué necesita) y el teléfono otra vez',
+    ],
   },
   fitness: {
-    vibe: 'Energético, motivacional, con movimiento.',
-    palette: 'Negro + un acento vibrante (lima, naranja, magenta, eléctrico). Alto contraste. Tipografía bold condensada para títulos.',
-    heroLayout: 'Hero full-bleed con foto del espacio en acción (gente entrenando si la hay) + overlay oscuro. Título grande mayúsculas, CTA "Primera clase gratis" o "Apúntate".',
-    photoStrategy: 'Fotos del espacio y equipamiento → integrarlas como background de secciones (con overlay) y en una sección "Las instalaciones" con grid. Si hay fotos de clases/gente → úsalas para sección "La comunidad". Aspect-ratio cinematográfico (16:9 o 21:9).',
-    primarySections: ['Hero', 'Clases / Disciplinas', 'Las instalaciones', 'Horarios', 'Planes y precios', 'Reseñas', 'Prueba gratis'],
-    ctaPrimary: 'Apúntate / Prueba gratis',
+    vibe: 'Energía y contraste. Fondo oscuro, un acento que grita, tipografía maciza.',
+    bg: '#0B0B0C', surface: '#17171A', text: '#F5F5F4', muted: '#A1A1A6',
+    primary: '#D7FF3E', accent: '#FF5A1F', dark: true,
+    displayFont: 'Bricolage Grotesque', bodyFont: 'Inter', radius: '6px',
+    hero: 'Pantalla completa con la foto de portada de fondo, overlay negro al 55% y titular en mayúsculas muy grande. CTA en el color de acento, que destaque sobre el negro.',
+    cta: 'Prueba una clase',
+    sections: [
+      '**Hero** — titular en mayúsculas, una frase, CTA en acento',
+      '**Qué se entrena aquí** — las disciplinas o servicios en cards con icono',
+      '**Las instalaciones** — las fotos, en grid 16:9',
+      '**Horarios** — la tabla de horarios, legible en móvil',
+      '**Lo que dicen** — los testimonios sobre fondo de superficie',
+      '**Dónde estamos** — dirección, mapa, teléfono',
+    ],
   },
   health: {
-    vibe: 'Profesional, limpio, confiable. Estilo clínica privada moderna.',
-    palette: 'Blanco + azul suave o verde menta. Mucho espacio en blanco. Tipografía sans-serif clara (Inter, DM Sans).',
-    heroLayout: 'Hero limpio: título centrado o a la izquierda, subtítulo explicativo, CTA "Pedir cita" + teléfono. Foto del equipo médico o de la consulta a la derecha o de fondo con mucha luz.',
-    photoStrategy: 'Pocas fotos, bien elegidas. 1 foto del equipo/consulta en hero, 2-3 fotos integradas en "Nuestro centro" o "Tecnología y equipamiento". NO uses fotos como decoración: cada foto debe ilustrar un punto concreto (el equipo, una tecnología, el espacio).',
-    primarySections: ['Hero', 'Tratamientos / Especialidades (cards)', 'Nuestro equipo', 'El centro (2-3 fotos)', 'Reseñas de pacientes', 'Primera visita / Cómo pedir cita', 'Ubicación + horarios'],
-    ctaPrimary: 'Pedir cita',
+    vibe: 'Limpio y tranquilizador. Mucho blanco, cero estridencias, todo legible.',
+    bg: '#FFFFFF', surface: '#F1F7F9', text: '#122A33', muted: '#5A727C',
+    primary: '#0E7490', accent: '#3BAFA0',
+    displayFont: 'DM Sans', bodyFont: 'Inter', radius: '12px',
+    hero: 'Sin foto de fondo: titular centrado o a la izquierda con la especialidad y la ciudad, subtítulo que explique qué se trata, botón de pedir cita y teléfono. La foto de portada va al lado, en un bloque contenido, nunca a sangre.',
+    cta: 'Pedir cita',
+    sections: [
+      '**Hero** — especialidad y ciudad, CTA de cita, teléfono',
+      '**Tratamientos** — cards con icono y una línea cada uno',
+      '**El centro** — las fotos, pocas y grandes',
+      '**Lo que dicen los pacientes** — los testimonios',
+      '**Primera visita** — qué llevar, cómo pedir cita, horarios',
+      '**Dónde estamos** — dirección, mapa, teléfono, accesibilidad si consta',
+    ],
   },
   retail: {
-    vibe: 'Cuidado, "lookbook", muestra el producto con dignidad.',
-    palette: 'Depende del producto, pero apuesta por neutros con un acento de la marca. Mucho espacio en blanco.',
-    heroLayout: 'Hero con UN producto/escaparate destacado a tamaño grande + título + CTA "Ver tienda" o "Visítanos".',
-    photoStrategy: 'Trata las fotos como catálogo: grid 3-4 columnas con aspect-ratio uniforme. Si hay fotos del local úsalas para "Visita la tienda" en sección aparte. NO mezcles producto y local.',
-    primarySections: ['Hero', 'Productos destacados (grid)', 'Sobre la tienda', 'Visítanos (foto del local + dirección)', 'Reseñas', 'Contacto + horarios'],
-    ctaPrimary: 'Visítanos / Ver productos',
+    vibe: 'Lookbook. El producto grande y el resto callado.',
+    bg: '#FFFFFF', surface: '#F5F4F2', text: '#1A1A1A', muted: '#6E6E6E',
+    primary: '#1A1A1A', accent: '#A85B3A',
+    displayFont: 'Instrument Serif', bodyFont: 'Inter', radius: '4px',
+    hero: 'Foto de portada grande con el nombre superpuesto abajo a la izquierda en display, o al lado si la foto no aguanta texto encima. Un solo CTA.',
+    cta: 'Visítanos',
+    sections: [
+      '**Hero** — nombre, una frase de qué se vende, CTA',
+      '**Qué vendemos** — las categorías reales del negocio, en cards sobrias',
+      '**La tienda** — las fotos, en grid uniforme',
+      '**Lo que dicen** — los testimonios',
+      '**Visítanos** — dirección, mapa, horarios, teléfono',
+    ],
   },
   auto: {
-    vibe: 'Técnico, masculino, eficiente. Que transmita "saben lo que hacen".',
-    palette: 'Grafito, negro, rojo o naranja de acento. Tipografía industrial/técnica.',
-    heroLayout: 'Hero con foto del taller en acción + título tipo "Mecánica de confianza en [ciudad]" + CTA "Pedir cita" + teléfono.',
-    photoStrategy: 'Fotos del taller, equipamiento y trabajos → sección "El taller" con 3-4 fotos + sección "Trabajos / Especialidades" con grid de tipos de servicios y foto representativa.',
-    primarySections: ['Hero', 'Servicios (cards con icono)', 'El taller (galería)', 'Marcas y especialidades', 'Reseñas', 'Pedir cita / Presupuesto', 'Ubicación + horarios'],
-    ctaPrimary: 'Pedir cita / Llamar',
+    vibe: 'Técnico y sólido. Oscuro, con un acento de señalización.',
+    bg: '#101214', surface: '#1A1D21', text: '#F2F4F6', muted: '#9AA3AC',
+    primary: '#E4572E', accent: '#F5C518', dark: true,
+    displayFont: 'Oswald', bodyFont: 'Inter', radius: '4px',
+    hero: 'Foto de portada de fondo con overlay al 60%, titular condensado con el servicio y la ciudad, teléfono grande como botón principal.',
+    cta: 'Pedir cita',
+    sections: [
+      '**Hero** — servicio y ciudad, teléfono grande',
+      '**Servicios** — cards con icono, sin fotos dentro',
+      '**El taller** — las fotos',
+      '**Lo que dicen** — los testimonios',
+      '**Horarios y ubicación** — tabla de horarios, mapa, teléfono',
+    ],
   },
   education: {
-    vibe: 'Cercano, motivador, profesional.',
-    palette: 'Azul confiable + un acento cálido (amarillo, coral). Tipografía amigable.',
-    heroLayout: 'Hero con título sobre resultados/promesa + CTA "Infórmate" + foto del aula o de alumnos en clase.',
-    photoStrategy: 'Fotos del centro y de actividades → integrarlas en "Las instalaciones" (grid 2-3 cols) y "Nuestra metodología" (1-2 fotos contextuales).',
-    primarySections: ['Hero', 'Cursos / Programas', 'Metodología', 'Las instalaciones', 'Profesorado', 'Testimonios de alumnos', 'Pide información'],
-    ctaPrimary: 'Pide información',
+    vibe: 'Cercano y claro. Que dé confianza a quien decide por otro.',
+    bg: '#FFFFFF', surface: '#F4F7FE', text: '#15213B', muted: '#5C6880',
+    primary: '#2451B8', accent: '#F2A73B',
+    displayFont: 'Poppins', bodyFont: 'Inter', radius: '14px',
+    hero: 'Sin foto de fondo: titular con lo que se aprende y dónde, subtítulo con el beneficio, CTA de información y la foto de portada al lado en un bloque redondeado.',
+    cta: 'Pide información',
+    sections: [
+      '**Hero** — qué se aprende y dónde, CTA',
+      '**Cursos** — cards con nombre y una línea',
+      '**Cómo enseñamos** — 3 puntos con icono',
+      '**El centro** — las fotos',
+      '**Lo que dicen** — los testimonios',
+      '**Infórmate** — formulario corto, teléfono, dirección, horarios, mapa',
+    ],
   },
   realestate: {
-    vibe: 'Premium, confiable, cercano al lujo según zona.',
-    palette: 'Negro/grafito + dorado o blanco hueso + verde oliva. Tipografía serif para títulos.',
-    heroLayout: 'Hero full-width con foto de una propiedad o de la oficina premium + título + CTA "Ver propiedades" o "Contactar".',
-    photoStrategy: 'Fotos de la oficina/equipo en sección "Quiénes somos". Si las fotos son de propiedades, NO mezclar con foto de oficina — separar claramente.',
-    primarySections: ['Hero', 'Servicios (comprar / vender / alquilar)', 'Quiénes somos + equipo', 'Reseñas de clientes', 'Contacto'],
-    ctaPrimary: 'Contactar',
+    vibe: 'Sobrio y premium. Serif, mucho blanco, nada de degradados.',
+    bg: '#FAF9F7', surface: '#F0EDE8', text: '#1B1A18', muted: '#6C665C',
+    primary: '#1B1A18', accent: '#8C7A5B',
+    displayFont: 'Cormorant Garamond', bodyFont: 'Inter', radius: '2px',
+    hero: 'Foto de portada a ancho completo con el nombre en serif encima, overlay al 30%. Debajo, una barra con el teléfono y el CTA.',
+    cta: 'Contactar',
+    sections: [
+      '**Hero** — nombre, zona en la que trabajan, CTA',
+      '**Qué hacemos** — comprar, vender, alquilar o lo que digan los datos, en tres bloques',
+      '**Quiénes somos** — las fotos y un párrafo con los años y la zona',
+      '**Lo que dicen** — los testimonios',
+      '**Contacto** — teléfono, dirección, horarios, mapa',
+    ],
   },
   event: {
-    vibe: 'Aspiracional, emotivo, cinematográfico.',
-    palette: 'Neutros elegantes: negro, blanco hueso, dorado, nude. Tipografía serif display.',
-    heroLayout: 'Hero a pantalla completa con la foto más emotiva/cinematográfica + título tipo display + CTA "Consultar disponibilidad".',
-    photoStrategy: 'Las fotos son el corazón. Galería grande tipo masonry o slideshow full-bleed. "Galería de momentos" con 12-20 fotos.',
-    primarySections: ['Hero cinematográfico', 'Sobre el espacio/servicio', 'Galería masonry', 'Servicios incluidos', 'Reseñas', 'Consultar disponibilidad'],
-    ctaPrimary: 'Consultar disponibilidad',
+    vibe: 'Emotivo y cinematográfico. Fotos grandes, texto escaso, elegancia.',
+    bg: '#FAF7F2', surface: '#F0E9DE', text: '#171310', muted: '#6F6459',
+    primary: '#171310', accent: '#B99B6B',
+    displayFont: 'Playfair Display', bodyFont: 'Inter', radius: '0px',
+    hero: 'Pantalla completa con la foto de portada, overlay al 35% y el nombre en display muy grande centrado. Un solo CTA debajo.',
+    cta: 'Consultar disponibilidad',
+    sections: [
+      '**Hero** — nombre, una frase, CTA',
+      '**El espacio / el servicio** — dos párrafos con lo que incluye',
+      '**Galería** — las fotos, lo más grandes posible',
+      '**Lo que dicen** — los testimonios',
+      '**Consultar** — formulario corto, teléfono, dirección, mapa',
+    ],
   },
   generic: {
-    vibe: 'Profesional y limpio, adaptable al sector.',
-    palette: 'Decide colores que encajen con el sector. Mantén buena legibilidad y jerarquía.',
-    heroLayout: 'Hero con título claro de qué hace el negocio + subtítulo de beneficio + CTA principal + foto de apoyo.',
-    photoStrategy: 'Curate las fotos: 1 para hero, 4-6 mejores en una galería principal con grid, el resto en una galería extendida con lightbox. NO pongas fotos sueltas decorando texto.',
-    primarySections: ['Hero', 'Qué hacemos / Servicios', 'Galería', 'Reseñas', 'Contacto + horarios + mapa'],
-    ctaPrimary: 'Contactar',
+    vibe: 'Limpio y profesional, sin personalidad prestada.',
+    bg: '#FFFFFF', surface: '#F5F6F7', text: '#14181C', muted: '#5D666E',
+    primary: '#1F2937', accent: '#2563EB',
+    displayFont: 'Manrope', bodyFont: 'Inter', radius: '12px',
+    hero: 'Titular con qué hace el negocio y dónde, subtítulo con el beneficio, CTA y teléfono. La foto de portada al lado o de fondo con overlay, según aguante.',
+    cta: 'Contactar',
+    sections: [
+      '**Hero** — qué hace el negocio y dónde, CTA',
+      '**Qué hacemos** — cards con icono y una línea',
+      '**Galería** — las fotos',
+      '**Lo que dicen** — los testimonios',
+      '**Contacto** — teléfono, dirección, horarios, mapa',
+    ],
   },
 };
 
@@ -221,35 +331,124 @@ function scoreReview(r: ReviewData, topics: string[]): number {
   return score;
 }
 
-function pickTopReviews(reviews: ReviewData[], business: BusinessData): ReviewData[] {
+/** Un testimonio listo para publicar: el texto ya recortado y de quién es. */
+interface Testimonial {
+  text: string;
+  name?: string;
+  stars?: number;
+  publishAt?: string;
+}
+
+const MAX_TESTIMONIALS = 3;
+
+/**
+ * Los testimonios los elige el pase de `review-filter` durante la extracción. Aquí se
+ * respeta esa decisión y solo se completa si eligió menos de la cuenta o si la
+ * extracción es anterior a que existiera el pase.
+ *
+ * En los dos caminos pasa el filtro de higiene: la reseña con un "pero" en la última
+ * frase o con un precio de hace dos años no se publica la elija quien la elija.
+ */
+function pickTestimonials(reviews: ReviewData[], business: BusinessData): Testimonial[] {
   const topics = (business.reviewsTags ?? [])
     .slice(0, 10)
     .map(t => t.title.toLowerCase())
     .filter(t => t.length > 3);
 
-  const positive = reviews.filter(r => (r.stars ?? 0) >= 4 && r.text);
-
-  // Bar alto primero; si el negocio tiene pocas reseñas largas, se relaja antes que quedarse sin nada.
-  const pick = (minLength: number) =>
-    positive
-      .filter(r => (r.text ?? '').length >= minLength)
-      .sort((a, b) => scoreReview(b, topics) - scoreReview(a, topics));
-
-  let ordered = pick(80);
-  if (ordered.length < 3) ordered = pick(40);
-  if (ordered.length < 3) ordered = pick(1);
-
-  // Dos reseñas que empiezan igual suelen contar lo mismo; en una fila de testimonios canta.
-  const chosen: ReviewData[] = [];
+  const chosen: Testimonial[] = [];
   const openings = new Set<string>();
-  for (const r of ordered) {
-    const opening = (r.text ?? '').toLowerCase().replace(/[^a-záéíóúñ ]/g, '').trim().slice(0, 25);
-    if (openings.has(opening)) continue;
+
+  const add = (r: ReviewData, text: string): boolean => {
+    const opening = text.toLowerCase().replace(/[^a-záéíóúñ ]/g, '').trim().slice(0, 25);
+    if (openings.has(opening)) return false;
     openings.add(opening);
-    chosen.push(r);
-    if (chosen.length >= 5) break;
+    chosen.push({ text, name: r.name, stars: r.stars, publishAt: r.publishAt });
+    return chosen.length >= MAX_TESTIMONIALS;
+  };
+
+  for (const r of reviews) {
+    const curated = r.curatedText?.trim();
+    if (curated && checkTestimonial(curated).ok && add(r, curated)) return chosen;
+  }
+  if (chosen.length >= MAX_TESTIMONIALS) return chosen;
+
+  // Respaldo: ordenar por concreción y quedarnos con las que pasan la higiene.
+  const ordered = reviews
+    .filter(r => (r.stars ?? 0) >= 4 && r.text && !r.curatedText)
+    .sort((a, b) => scoreReview(b, topics) - scoreReview(a, topics));
+
+  for (const r of ordered) {
+    if (!checkTestimonial(r.text).ok) continue;
+    if (add(r, trimToSentence(r.text!))) return chosen;
+  }
+  if (chosen.length > 0) return chosen;
+
+  // Nada pasó el filtro estricto. Antes que quedarnos sin prueba social, se relaja a
+  // "sin importes" — lo único que es un problema de verdad si se publica.
+  for (const r of ordered) {
+    if (!isPublishable(r.text)) continue;
+    if (add(r, trimToSentence(r.text!))) break;
   }
   return chosen;
+}
+
+const DAY_JOINERS = {
+  es: { range: ' a ', pair: ' y ' },
+  en: { range: ' to ', pair: ' & ' },
+} as const;
+
+const HOUR_RANGE_RE = /(\d{1,2})(?::(\d{2}))?\s*(AM|PM)?\s+to\s+(\d{1,2})(?::(\d{2}))?\s*(AM|PM)?/gi;
+
+/**
+ * Apify devuelve los horarios en inglés y en 12 horas ("1 to 4:30 PM") aunque se le
+ * pida el sitio en español. Publicado tal cual en la web de un negocio español canta
+ * muchísimo, así que se pasan a 24 horas. Si el formato no encaja, se deja intacto.
+ */
+function normalizeHours(raw: string, lang: 'es' | 'en'): string {
+  if (lang !== 'es') return raw;
+  if (/^closed$/i.test(raw.trim())) return 'Cerrado';
+  if (/open 24 ?hours/i.test(raw)) return 'Abierto 24 h';
+
+  return raw.replace(HOUR_RANGE_RE, (whole, h1, m1, ap1, h2, m2, ap2) => {
+    // "1 to 4:30 PM": el meridiano del final vale para los dos extremos.
+    const from = to24(h1, m1, ap1 ?? ap2);
+    const to = to24(h2, m2, ap2 ?? ap1);
+    return from && to ? `${from}–${to}` : whole;
+  });
+}
+
+function to24(hour: string, minutes: string | undefined, meridiem: string | undefined): string | null {
+  let h = Number(hour);
+  if (!Number.isInteger(h) || h < 1 || h > 24) return null;
+  if (meridiem) {
+    const pm = meridiem.toUpperCase() === 'PM';
+    if (h === 12) h = pm ? 12 : 0;
+    else if (pm) h += 12;
+  }
+  return `${String(h).padStart(2, '0')}:${minutes ?? '00'}`;
+}
+
+/**
+ * "Lunes: 13-16, Martes: 13-16, Miércoles: 13-16…" ocupa siete líneas y se lee fatal.
+ * Los días seguidos con el mismo horario se colapsan en uno.
+ */
+function collapseHours(hours: Array<{ day: string; hours: string }>, lang: 'es' | 'en'): string[] {
+  const out: string[] = [];
+  let i = 0;
+  while (i < hours.length) {
+    let j = i;
+    while (j + 1 < hours.length && hours[j + 1].hours === hours[i].hours) j++;
+    const span = j - i;
+    const joiner = DAY_JOINERS[lang];
+    const label =
+      span === 0 ? hours[i].day
+      : span === 1 ? `${hours[i].day}${joiner.pair}${hours[j].day}`
+      : `${hours[i].day}${joiner.range}${hours[j].day}`;
+    const capitalized = label.charAt(0).toUpperCase() + label.slice(1);
+    out.push(`${capitalized}: ${normalizeHours(hours[i].hours, lang)}`);
+    i = j + 1;
+  }
+  return out;
 }
 
 interface PhotoGroup {
@@ -371,6 +570,46 @@ function curateRealPhotos(metadata: PhotoMetadata[], maxCount = 6): PhotoMetadat
     .slice(0, maxCount);
 }
 
+// Pesos disponibles en Google Fonts por familia. Pedir un peso que la fuente no tiene
+// devuelve un 400 y la web se queda sin tipografía; las que solo traen regular van vacías.
+const DISPLAY_WEIGHTS: Record<string, string> = {
+  'Fraunces': '400;600;700',
+  'DM Serif Display': '',
+  'Italiana': '',
+  'Manrope': '400;600;800',
+  'Bricolage Grotesque': '400;700;800',
+  'DM Sans': '400;500;700',
+  'Instrument Serif': '',
+  'Oswald': '400;600;700',
+  'Poppins': '400;600;700',
+  'Cormorant Garamond': '400;600;700',
+  'Playfair Display': '400;600;800',
+};
+
+function googleFontsHref(art: ArtDirection): string {
+  const fam = (name: string, weights: string) =>
+    `family=${name.replace(/ /g, '+')}${weights ? `:wght@${weights}` : ''}`;
+  const display = fam(art.displayFont, DISPLAY_WEIGHTS[art.displayFont] ?? '');
+  const body = fam(art.bodyFont, '400;500;600');
+  return `https://fonts.googleapis.com/css2?${display}&${body}&display=swap`;
+}
+
+/** Lo que se generaría de más está prohibido; el ejemplo cambia según el negocio. */
+const FORBIDDEN_IMAGERY: Record<BusinessKind, string> = {
+  food: 'platos, el local o clientes',
+  lodging: 'habitaciones, el edificio o el entorno',
+  beauty: 'trabajos, el salón o personas',
+  service: 'trabajos terminados, herramientas en uso o el equipo',
+  fitness: 'el gimnasio, el material o gente entrenando',
+  health: 'la consulta, el equipamiento o el personal',
+  retail: 'productos, el escaparate o la tienda',
+  auto: 'el taller, coches o mecánicos',
+  education: 'aulas, alumnos o profesores',
+  realestate: 'propiedades, la oficina o el equipo',
+  event: 'el espacio, celebraciones o personas',
+  generic: 'el negocio, sus productos o sus instalaciones',
+};
+
 export function generatePromptMd(
   business: BusinessData,
   reviews: ReviewData[],
@@ -378,296 +617,244 @@ export function generatePromptMd(
   photoMetadata?: PhotoMetadata[],
 ): string {
   const kind = inferBusinessKind(business);
-  const strategy = KIND_STRATEGY[kind];
-  const hasMetadata = !!photoMetadata && photoMetadata.length > 0;
+  const art = KIND_ART[kind];
+  const lang: 'es' | 'en' = ['US', 'GB', 'IE', 'AU', 'CA', 'NZ'].includes(business.countryCode ?? '') ? 'en' : 'es';
+  const name = business.title ?? 'este negocio';
+  const city = business.city ?? business.state ?? '';
 
-  // Fallback al sistema por orden si no hay metadata (extracciones antiguas)
-  const heroPhoto = photoUrls[0];
-  const featuredPhotos = photoUrls.slice(1, 7);
-  const galleryPhotos = photoUrls.slice(7);
+  // Con metadata mandan los puestos que asignó el pase comparativo; sin ella
+  // (extracciones anteriores a agosto de 2026) se cae al orden en que llegaron.
+  const hasMetadata = !!photoMetadata && photoMetadata.length > 0;
+  const curated = hasMetadata ? curateRealPhotos(photoMetadata!, 6) : [];
+  const heroPhoto = hasMetadata
+    ? curated.find(m => m.role === 'hero')
+    : (photoUrls[0] ? { url: photoUrls[0], description: '', type: 'otro' as PhotoType } as PhotoMetadata : undefined);
+  const galleryPhotos = hasMetadata
+    ? curated.filter(m => m !== heroPhoto)
+    : photoUrls.slice(1, 7).map(url => ({ url, description: '', type: 'otro' as PhotoType } as PhotoMetadata));
+  const anyPhotos = !!heroPhoto || galleryPhotos.length > 0;
+
+  const testimonials = pickTestimonials(reviews, business);
 
   const lines: string[] = [];
+  const p = (...s: string[]) => { lines.push(...s, ''); };
 
-  lines.push(`# Prompt para la web de ${business.title ?? 'este negocio'}`);
-  lines.push('');
-  lines.push('> Pega este prompt completo (sin recortar) en Lovable, Cursor, Bolt, v0, ChatGPT, Claude o cualquier herramienta de vibe coding. Está optimizado para que el resultado sea una web profesional y bien diseñada, no un montón de fotos sueltas en una página vacía.');
-  lines.push('');
-  lines.push('---');
-  lines.push('');
+  p(`# Web para ${name}`);
+  p('Pega este mensaje entero en Lovable, v0, Bolt, Cursor o Claude y empieza a construir. Está todo aquí: los datos son reales, las fotos ya están elegidas con su puesto y la dirección de arte está decidida. No hace falta preguntar nada antes de empezar.');
 
-  // ========== ROL ==========
-  lines.push('## 1. Tu rol');
-  lines.push('');
-  lines.push(`Eres un diseñador web senior y un copywriter especializado en negocios locales. Tu trabajo es crear una **landing page de UNA sola página** (single page con secciones que navegan por anchors) para **${business.title ?? 'este negocio'}**${business.categoryName ? ` (${business.categoryName})` : ''}${business.city ? ` en ${business.city}` : ''}.`);
-  lines.push('');
-  lines.push('La web tiene que verse como hecha por un estudio de diseño, no como un template genérico relleno con fotos. Si tienes que elegir entre meter más contenido o que respire mejor, **siempre prioriza que respire**.');
-  lines.push('');
+  // ========== 1. EL ENCARGO ==========
+  p('## 1. El encargo');
+  p(
+    `Una **landing de una sola página** para **${name}**${business.categoryName ? `, ${business.categoryName.toLowerCase()}` : ''}${city ? ` en ${city}` : ''}. ` +
+    `Todo el contenido en **${lang === 'en' ? 'inglés' : 'español'}**.`,
+  );
+  p(
+    `El objetivo de la página es que quien entre acabe ${business.phone ? 'llamando por teléfono' : 'contactando'}. ` +
+    'Todo lo demás está al servicio de eso.',
+  );
+  p(
+    '**El copy lo escribes tú**, con los datos reales de la sección 6. Concreto y de este negocio: si una frase valdría igual para cualquier competidor, no la escribas. ' +
+    'Mal: "Ofrecemos un servicio de calidad". Bien: algo que solo pueda decir este negocio, con su nombre, su ciudad y lo que hace de verdad.',
+  );
+  p(
+    '- **Párrafos de dos frases como mucho.** Ningún bloque pasa de 60 palabras: en el móvil no se lee, se salta.',
+    '- **Relee cada frase preguntándote si un cliente podría leerla como una pega.** Explicar por qué algo está bien acaba nombrando el defecto que quieres negar, y lo único que se queda el lector es el defecto.',
+    `- Escribe el nombre del negocio como se escribe: **${name}**.`,
+  );
 
-  // ========== ANTES DE EMPEZAR ==========
-  lines.push('## 2. Antes de escribir una sola línea de código');
-  lines.push('');
-  lines.push('Para esta sección, **piensa primero, código después**. Antes de generar nada:');
-  lines.push('');
-  lines.push('1. **Identifica el tono** del negocio leyendo las reseñas y la categoría. ¿Es cercano? ¿Premium? ¿Técnico? El copy debe sonar a eso.');
-  lines.push('2. **Planifica el sistema de diseño antes de codear**: paleta (3-4 colores máximo), 2 fuentes (display + sans-serif), escala de espaciado (4, 8, 16, 24, 32, 48, 64, 96px), border-radius coherente.');
-  lines.push('3. **Las fotos y las reseñas ya están elegidas y asignadas** en las secciones 5 y 9. No vuelvas a elegir: hay un puesto concreto para cada foto y una lista cerrada de testimonios. Si crees que sobra alguna, quítala — pero no metas ninguna que no esté ahí.');
-  lines.push('');
-
-  // ========== ESTRATEGIA VISUAL ==========
-  lines.push(`## 3. Estrategia visual para este negocio (categoría: ${kind})`);
-  lines.push('');
-  lines.push(`**Vibe:** ${strategy.vibe}`);
-  lines.push('');
-  lines.push(`**Paleta sugerida:** ${strategy.palette}`);
-  lines.push('');
-  lines.push(`**Hero recomendado:** ${strategy.heroLayout}`);
-  lines.push('');
-  lines.push(`**CTA principal:** "${strategy.ctaPrimary}" repetido al menos 2 veces en la página (uno en hero, uno al final). Si hay teléfono, el botón de llamar debe ser \`tel:\` para que en móvil llame directamente.`);
-  lines.push('');
-  lines.push('**Estructura de secciones recomendada (en este orden):**');
-  for (const [i, s] of strategy.primarySections.entries()) {
-    lines.push(`${i + 1}. ${s}`);
+  // ========== 2. DIRECCIÓN DE ARTE ==========
+  p('## 2. Dirección de arte (ya decidida — úsala tal cual)');
+  p(`**El tono:** ${art.vibe}`);
+  p('**Paleta.** Defínelos como variables CSS y no uses ningún color fuera de esta lista:');
+  p(
+    '```css',
+    ':root {',
+    `  --bg: ${art.bg};        /* fondo de la página */`,
+    `  --surface: ${art.surface};   /* tarjetas y secciones alternas */`,
+    `  --text: ${art.text};      /* texto principal */`,
+    `  --muted: ${art.muted};     /* texto secundario */`,
+    `  --primary: ${art.primary};   /* botones y enlaces */`,
+    `  --accent: ${art.accent};    /* iconos, subrayados, detalles */`,
+    '}',
+    '```',
+  );
+  if (art.dark) {
+    p('Es un diseño de fondo oscuro: cuida el contraste del texto secundario y usa bordes finos claros en vez de sombras, que sobre negro no se ven.');
   }
-  lines.push('');
+  p('**Tipografías.** Cárgalas de Google Fonts con este link exacto:');
+  p('```html', `<link href="${googleFontsHref(art)}" rel="stylesheet">`, '```');
+  p(
+    `- Títulos: **${art.displayFont}**`,
+    `- Texto: **${art.bodyFont}**`,
+    '- Escala: hero 64-96px en desktop y 40-56px en móvil, h2 36-48px, h3 24-28px, cuerpo 17px con line-height 1.6',
+  );
+  p('**Formas y ritmo.**');
+  p(
+    `- \`border-radius: ${art.radius}\` en todo: tarjetas, botones e imágenes. Uno solo, coherente.`,
+    '- Aire entre secciones: 112px en desktop, 72px en móvil. Que respire.',
+    '- Contenedor de 1152px centrado con padding lateral de 24px. El hero puede ir a sangre.',
+    '- Sombras casi invisibles o ninguna: mejor un borde de 1px que una sombra pesada.',
+    '- Animación: fade-up de 20px al entrar en viewport, 600ms, una sola vez. Nada más.',
+    '- Mobile-first de verdad: compruébalo a 375px antes de darlo por hecho.',
+  );
+  p(`**Hero:** ${art.hero}`);
+  p(
+    '**El titular grande del hero es una promesa, no el nombre del negocio.** El nombre ya va en el logo, en el `<title>` y en el pie; ' +
+    'gastar el tamaño de letra más grande de la página en repetirlo desperdicia lo único que va a leer todo el mundo. ' +
+    `Pon "${name}" encima, pequeño, como antetítulo, y usa el titular para decir qué se lleva quien entre.`,
+  );
+  p(
+    '**Recursos de maqueta — usa al menos tres.** Sin esto la página sale como el apilado de secciones de siempre, ' +
+    'y eso es exactamente lo que hay que evitar:',
+  );
+  p(
+    '- **Numera las secciones** en el antetítulo (`01`, `02`, `03`…) con la tipografía de títulos y en el color de acento.',
+    '- **Una banda a contracolor** a media página: una sección entera con el fondo en `--text` o `--primary` y el texto invertido, para romper el ritmo.',
+    '- **Rejilla asimétrica** en los bloques de dos columnas: 7/5 o 8/4, nunca 50/50.',
+    '- **Una foto sangrando por un borde** de la pantalla, sin margen a ese lado.',
+    '- **Un dato grande** en tipografía de títulos a tamaño de titular (la valoración, los años, el número de reseñas) como elemento gráfico, no como texto corrido.',
+    '- **Un sello circular** o una etiqueta rotada con la valoración, encima de una foto.',
+  );
+  p(
+    `**CTA principal:** "${art.cta}", arriba y al final de la página.` +
+    (business.phone ? ` El botón de llamar usa \`tel:${business.phoneUnformatted ?? business.phone}\` para que en móvil marque directamente.` : ''),
+  );
 
-  // ========== REGLAS DE FOTOS ==========
-  lines.push('## 4. Reglas estrictas sobre las fotos (las más importantes)');
-  lines.push('');
-  lines.push('Este es el error más típico que tienes que evitar:');
-  lines.push('');
-  lines.push('### ❌ NO hagas esto');
-  lines.push('- **NO** metas fotos sueltas en medio de un párrafo de texto.');
-  lines.push('- **NO** las uses como "decoración" en cualquier sitio para rellenar.');
-  lines.push('- **NO** uses todas las fotos. Si hay 25, no significa que tengan que aparecer 25.');
-  lines.push('- **NO** las mezcles con aspect ratios distintos en el mismo grid (rompe la composición).');
-  lines.push('- **NO** las pongas a tamaño completo sin recorte: usa `object-fit: cover` y un aspect-ratio fijado por el contenedor.');
-  lines.push('- **NO** las metas dentro de cards de servicios si las fotos no representan ese servicio concreto.');
-  lines.push('');
-  lines.push('### ✅ SÍ haz esto');
-  lines.push('- **Cada foto tiene un rol asignado**: hero, destacada, galería, o background de sección. No "fotos sueltas".');
-  lines.push('- **Aspect ratios consistentes por sección**: galería tipo grid → todas 4:3 o 1:1. Hero → 16:9 o 21:9. Cards → 3:2.');
-  lines.push('- **Lazy loading** en todas (`loading="lazy"`) salvo el hero.');
-  lines.push('- **alt descriptivo** con el nombre del negocio y qué se ve.');
-  lines.push('- **Galería con lightbox** si hay más de 6 fotos.');
-  lines.push(`- ${strategy.photoStrategy}`);
-  lines.push('');
-  lines.push('⚠️ Esa estrategia describe el escaparate ideal. **Si pide más fotos de las que hay en la sección 5, manda la sección 5**: adapta el layout a las fotos que tienes en vez de rellenar. Una galería de 4 fotos buenas bien maquetadas se ve mejor que un masonry de 9 con 5 mediocres.');
-  lines.push('');
+  // ========== 3. LA PÁGINA ==========
+  p('## 3. La página, sección por sección');
+  const sections = art.sections.filter(s => testimonials.length > 0 || !/Lo que dicen|Opiniones/.test(s));
 
-  // ========== ASIGNACIÓN DE FOTOS ==========
-  if (photoUrls.length === 0) {
-    lines.push('## 5. Fotos');
-    lines.push('');
-    lines.push('No hay fotos disponibles para este negocio. No inventes ni uses imágenes placeholder genéricas: en su lugar, refuerza el diseño con tipografía, color y composición. Considera usar iconos coherentes (Lucide o similar) en lugar de imágenes. Si el resultado queda pobre, sugiere al dueño aportar 5-8 fotos profesionales.');
-    lines.push('');
-  } else if (hasMetadata) {
-    // VERSIÓN CON METADATA — fotos clasificadas y rankeadas
-    const realCurated = curateRealPhotos(photoMetadata!, 6);
-    const realHero = realCurated.find(m => m.role === 'hero');
-    const realGallery = realCurated.filter(m => m !== realHero);
+  // Google declara para qué público es el sitio ("Ideal para ir con niños", "Grupos").
+  // Es lo más cercano a segmentación que tenemos, y una página sin ella se queda en folleto.
+  const audience = Object.keys(business.additionalInfo ?? {})
+    .filter(k => /p[úu]blico|menores|ni[ñn]os|grupos|ambiente/i.test(k));
+  if (audience.length > 0) {
+    const at = sections.findIndex(s => /Lo que dicen|Opiniones/.test(s));
+    const extra = '**Para quién es este sitio** — tres perfiles reales sacados de las características declaradas en la sección 6, en tres bloques cortos con icono. Nada de inventarse públicos que los datos no respalden';
+    sections.splice(at >= 0 ? at : sections.length - 1, 0, extra);
+  }
+  for (const [i, s] of sections.entries()) p(`${i + 1}. ${s}`);
+  p('Ese es el orden y no hay más secciones. Si un dato que pide una sección no está en la sección 6, esa parte no se pone — no se rellena con nada.');
+  p('Ese orden es el esqueleto, no la maqueta: **al menos una de estas secciones va a contracolor y al menos una lleva la foto sangrando por un borde.** Si las montas todas igual, con su título centrado y su párrafo debajo, la página sale como cualquier plantilla por muy buenos que sean los colores.');
+  p(
+    `**La última sección tiene que cerrar la venta**, no solo informar: ${business.phone ? 'el botón de llamar en `tel:`, ' : ''}` +
+    'el enlace de "Cómo llegar" al mapa y un formulario corto de tres campos (nombre, teléfono, qué necesita). ' +
+    'Una página que acaba en un mapa y un horario deja al visitante sin nada que hacer.',
+  );
+  p(
+    `Además, en el \`<head>\`: \`<title>\` con \`${name}${business.categoryName ? ` – ${business.categoryName}` : ''}${city ? ` en ${city}` : ''}\`, ` +
+    'una meta description de 150-160 caracteres con el beneficio y la ciudad, y un `<script type="application/ld+json">` con schema.org/LocalBusiness usando los datos reales de la sección 6.',
+  );
 
-    lines.push('## 5. Fotos: puestos ya asignados');
-    lines.push('');
-    lines.push('Todas las fotos son **reales del negocio**, sacadas de su ficha de Google Maps, y ya están filtradas y ordenadas: quitamos las repetidas, las flojas y las que rompían la coherencia del conjunto. Cada una tiene un puesto asignado abajo.');
-    lines.push('');
-    lines.push('**Úsala en ese puesto y en ninguno otro.** No las reordenes, no repitas la misma en dos secciones, y no añadas imágenes que no estén en esta lista — ni de bancos de imágenes, ni generadas, ni placeholders. Si el negocio no tiene una foto para algo, esa sección se resuelve con tipografía y color, no con una foto de relleno. Las URLs son permanentes (CDN nuestro), sirven con `<img>` o `next/image`.');
-    lines.push('');
-
-    if (realHero) {
-      lines.push('**HERO.** Va a pantalla completa en la primera sección, con overlay oscuro del 30-40% para que se lea el titular encima:');
-      lines.push('');
-      lines.push(`- ${realHero.url}`);
-      lines.push(`  - _${realHero.description || 'foto del negocio'}_`);
-      if (realHero.roleReason) lines.push(`  - Elegida porque: ${realHero.roleReason}`);
-      lines.push('');
-    } else if (realCurated.length > 0) {
-      lines.push('**Sin foto de portada.** Ninguna de las fotos disponibles aguanta un hero a pantalla completa. Resuelve la portada **sin foto de fondo**: titular grande, un color de marca sólido o un degradado sutil, el CTA y la valoración de Google. Queda mucho mejor que estirar una foto mediocre a pantalla completa.');
-      lines.push('');
-    }
-
-    if (realGallery.length > 0) {
-      lines.push(`**GALERÍA — ${realGallery.length} ${realGallery.length === 1 ? 'foto' : 'fotos'}, en este orden.** Van juntas en una sola sección, con el mismo aspect-ratio y el mismo border-radius:`);
-      lines.push('');
-      for (const [i, p] of realGallery.entries()) {
-        lines.push(`${i + 1}. ${p.url}`);
-        lines.push(`   - _${p.description || 'foto del negocio'}_ (${p.type})`);
-        if (p.roleReason) lines.push(`   - Elegida porque: ${p.roleReason}`);
-      }
-      lines.push('');
-      if (realGallery.length < 3) {
-        lines.push('⚠️ Son menos de 3: **no hagas un grid con ellas**, quedaría vacío. Intégralas sueltas como acento dentro del contenido (una al lado del bloque "sobre nosotros", otra junto a los testimonios).');
-        lines.push('');
-      }
-    }
-
-    if (realCurated.length === 0) {
-      lines.push('### 📸 Sin fotos usables');
-      lines.push('');
-      lines.push('Este negocio no tiene ni una foto que aguante en una web. **Haz la web sin fotos** — y hazla bien, que se puede: tipografía grande y con carácter, un sistema de color fuerte, mucho espacio en blanco, iconos coherentes (Lucide o similar) para los servicios, y la valoración de Google y los testimonios como protagonistas visuales.');
-      lines.push('');
-      lines.push('**No rellenes el hueco.** Nada de fotos de banco de imágenes, ilustraciones genéricas, imágenes generadas ni placeholders grises: una web honesta sin fotos transmite más confianza que una llena de fotos que obviamente no son de este negocio. Al final del todo, sugiere al dueño que aporte 5-8 fotos profesionales y dile qué debería salir en ellas.');
-      lines.push('');
-    } else {
-      // Qué hacer con cada tipo de foto: una galería de "trabajos terminados" y una de
-      // "producto" se maquetan distinto aunque las dos sean fotos bonitas.
-      lines.push('**Cómo tratar cada tipo de foto que te hemos dado:**');
-      lines.push('');
-      for (const group of groupPhotosByType(realCurated)) {
-        lines.push(`- **${group.title}** — ${group.guidance}`);
-      }
-      lines.push('');
-    }
-
-    lines.push('### ⚠️ Reglas críticas sobre fotos');
-    lines.push('');
-    lines.push('- **No añadas ninguna imagen que no esté en la lista de arriba.** Ni stock, ni generada, ni placeholder. Antes menos fotos que fotos que no son de este negocio.');
-    lines.push('- **Vienen de móviles distintos y años distintos.** Aplica el mismo tratamiento a todas las del mismo grid —igual aspect-ratio, igual border-radius, igual sombra— y considera un filtro sutil y uniforme (`filter: saturate(0.92) contrast(1.02)`) para que parezcan de la misma sesión. Compruébalo: si las afea, quítalo.');
-    lines.push('- **Logos del negocio → solo favicon/header.** Nunca como decoración.');
-    lines.push('- **Fotos de menú/carta → transcribe el texto** y maquétalo. Nunca muestres la carta fotografiada.');
-    lines.push('');
+  // ========== 4. FOTOS ==========
+  p('## 4. Fotos');
+  if (!anyPhotos) {
+    p('**Este negocio no tiene ni una foto usable, así que la web va sin fotos.** Se puede hacer muy bien: tipografía grande y con carácter, el sistema de color de la sección 2 llevado al extremo, mucho espacio en blanco, iconos de Lucide para los servicios, y la valoración y los testimonios como protagonistas visuales.');
+    p('**No rellenes el hueco.** Ni banco de imágenes, ni ilustraciones genéricas, ni imágenes generadas, ni placeholders grises. Una web honesta sin fotos da más confianza que una llena de fotos que obviamente no son de este negocio. Al final del todo, sugiere al dueño qué 5-8 fotos debería hacer.');
   } else {
-    // FALLBACK — sin metadata (extracciones antiguas)
-    lines.push('## 5. Asignación concreta de fotos');
-    lines.push('');
-    lines.push('Las URLs son permanentes (alojadas en nuestro CDN), úsalas directamente con `<img>` o `next/image`.');
-    lines.push('');
+    p('Todas son fotos reales del negocio, ya filtradas: quitamos las repetidas, las flojas y las que rompían la coherencia del conjunto. **Cada una tiene un puesto asignado. Úsala ahí y en ningún otro sitio.** Las URLs son permanentes, sirven con `<img>` o `next/image`.');
 
     if (heroPhoto) {
-      lines.push('### 🌟 Hero (UNA sola foto)');
-      lines.push('');
-      lines.push('Esta es la foto principal. Va a tamaño grande en la primera sección. Si es muy distinta del estilo del resto, considera elegir otra de las destacadas que encaje mejor.');
-      lines.push('');
-      lines.push(`- ${heroPhoto}`);
-      lines.push('');
-    }
-
-    if (featuredPhotos.length > 0) {
-      lines.push(`### ⭐ Destacadas (${featuredPhotos.length} fotos para galería principal / secciones)`);
-      lines.push('');
-      lines.push('Úsalas en la galería principal o repartidas en secciones temáticas según la estrategia de arriba. Estas son las que **siempre** aparecen.');
-      lines.push('');
-      for (const url of featuredPhotos) {
-        lines.push(`- ${url}`);
-      }
-      lines.push('');
+      p('**PORTADA:**');
+      p(
+        `- ${heroPhoto.url}`,
+        `  - _${heroPhoto.description || 'foto del negocio'}_`,
+        ...(heroPhoto.roleReason ? [`  - Elegida porque: ${heroPhoto.roleReason}`] : []),
+      );
+    } else if (galleryPhotos.length > 0) {
+      p('**Sin foto de portada.** Ninguna aguanta un hero a pantalla completa. Resuelve la portada **sin foto de fondo**: titular grande, el color de marca, el CTA y la valoración. Queda mejor que estirar una foto mediocre.');
     }
 
     if (galleryPhotos.length > 0) {
-      lines.push(`### 📷 Galería extendida (${galleryPhotos.length} fotos opcionales)`);
-      lines.push('');
-      lines.push('Mételas en un lightbox / modal de galería completa que se abre con un botón "Ver todas las fotos". **No** las pongas todas visibles a la vez.');
-      lines.push('');
-      for (const url of galleryPhotos) {
-        lines.push(`- ${url}`);
+      p(
+        `**REPARTIDAS POR LA PÁGINA — ${galleryPhotos.length} ${galleryPhotos.length === 1 ? 'foto' : 'fotos'}, en este orden.** ` +
+        'No las amontones todas en una galería: eso deja el resto de la página como un muro de texto. ' +
+        'Ve colocándolas de arriba abajo, una por sección, según van apareciendo las secciones de la sección 3. ' +
+        'Si al final sobran dos o más, esas sí van juntas como cierre visual antes del contacto.',
+      );
+      for (const [i, ph] of galleryPhotos.entries()) {
+        lines.push(`${i + 1}. ${ph.url}`);
+        lines.push(`   - _${ph.description || 'foto del negocio'}_${ph.type && ph.type !== 'otro' ? ` (${ph.type})` : ''}`);
+        if (ph.roleReason) lines.push(`   - Elegida porque: ${ph.roleReason}`);
       }
       lines.push('');
+      if (galleryPhotos.length < 3) {
+        p('⚠️ Son menos de tres: **no hagas un grid con ellas**, quedaría vacío. Intégralas sueltas como acento dentro del contenido.');
+      }
     }
+
+    if (hasMetadata && curated.length > 0) {
+      p('**Cómo tratar cada tipo:**');
+      for (const group of groupPhotosByType(curated)) lines.push(`- **${group.title}** — ${group.guidance}`);
+      lines.push('');
+    }
+
+    p(
+      '- **Ninguna sección de más de 60 palabras se queda sin imagen.** Si te quedas sin fotos antes que sin secciones, resuelve las que falten con la banda a contracolor, un dato grande o un bloque de color — nunca con una imagen que no esté en esta lista.',
+      '- Vienen de móviles y años distintos: mismo `aspect-ratio`, `object-fit: cover`, mismo radio y misma sombra en todas las que caigan en el mismo grid. Un filtro sutil y uniforme (`filter: saturate(0.92) contrast(1.02)`) ayuda a que parezcan de la misma sesión — compruébalo y quítalo si las afea.',
+      '- `loading="lazy"` en todas menos la de portada. `alt` descriptivo con el nombre del negocio.',
+      '- Lightbox solo si hay más de cuatro juntas.',
+    );
   }
 
-  // ========== SISTEMA DE DISEÑO ==========
-  lines.push('## 6. Sistema de diseño concreto');
-  lines.push('');
-  lines.push('- **Tailwind CSS** (o el equivalente del stack). No CSS suelto.');
-  lines.push('- **Tipografía**: una display para títulos + una sans-serif para texto. Carga desde Google Fonts. Sugerencias por categoría:');
-  lines.push('  - food / event / lodging → display serif (Playfair, Cormorant, DM Serif Display) + Inter');
-  lines.push('  - service / auto / fitness → sans-serif bold (Bricolage Grotesque, Manrope) + Inter');
-  lines.push('  - beauty → display serif fina (Cormorant, Italiana) + Inter');
-  lines.push('  - health / education / realestate → sans-serif limpia (DM Sans, Inter) sin display');
-  lines.push('- **Escala tipográfica**: hero 64-96px desktop / 40-56px móvil, h2 36-48px, h3 24-28px, body 16-18px con line-height 1.6.');
-  lines.push('- **Espaciado entre secciones**: 96-128px desktop, 64-80px móvil. Las secciones tienen que respirar.');
-  lines.push('- **Containers**: max-w-6xl (~1152px) centrado con padding lateral. El hero puede ir full-bleed.');
-  lines.push('- **Border-radius**: elige uno y úsalo siempre. Recomendado: 12px para cards/botones, 24px para imágenes grandes, 0 para hero full-bleed.');
-  lines.push('- **Sombras**: muy sutiles (`shadow-sm` máximo). Mejor bordes finos que sombras pesadas.');
-  lines.push('- **Animaciones**: scroll-triggered con Framer Motion o CSS `@starting-style`. Fade-up suave (20px de translate, 600ms). Nada exagerado.');
-  lines.push('- **Mobile-first** real: diseña para móvil primero y escala. El menú móvil es hamburguesa con overlay.');
-  lines.push('- **Accesibilidad**: contraste AA mínimo, todos los botones con label, formularios con labels visibles.');
-  lines.push('');
-  lines.push('### Tratamiento visual uniforme de fotos (OBLIGATORIO)');
-  lines.push('');
-  lines.push('Las fotos reales vienen de orígenes mixtos. Para que no rompan la coherencia:');
-  lines.push('');
-  lines.push('- **TODAS las fotos del mismo grid** llevan: mismo `aspect-ratio`, `object-fit: cover`, mismo `border-radius`, misma sombra (o ninguna).');
-  lines.push('- **Aplica un filtro CSS sutil** para unificar paletas: `filter: saturate(0.92) contrast(1.02);` o un overlay de color de marca al 8% de opacidad. Pruébalo y comprueba que no las hace feas.');
-  lines.push('- **NO mezcles fotos verticales y horizontales** en el mismo grid: fuerza un aspect-ratio y deja que `object-cover` recorte.');
-  lines.push('- **Hover sutil**: zoom 1.03 con transición 400ms, opcional un overlay oscuro al 10%. Nada exagerado.');
-  lines.push('- **Lightbox**: si hay más de 4 fotos en un grid, abre lightbox al click. Si hay 1-3, no es necesario.');
-  lines.push('');
-
-  // ========== COPY ==========
-  lines.push('## 7. Reglas para el copy');
-  lines.push('');
-  lines.push(`- **Idioma**: ${business.countryCode === 'US' || business.countryCode === 'GB' ? 'inglés' : 'español'} (el del negocio).`);
-  lines.push('- **Concreto, no genérico**. Mal: "Ofrecemos servicios de calidad". Bien: "Reformas integrales de cocinas y baños en Madrid desde 2015, con garantía de 3 años".');
-  lines.push('- **Usa los datos reales**: nombre, ciudad, categoría, años (si se deducen), precios (si están). Si no tienes el dato, no lo inventes — omítelo.');
-  lines.push('- **Reseñas como testimonios**: pega 3-5 reseñas tal cual, **sin reescribir**, con el nombre real y las estrellas. La autenticidad importa más que la gramática perfecta.');
-  lines.push('- **Microcopy** en botones: "Pedir cita" en vez de "Click aquí". "Llamar ahora" en vez de "Contacto".');
-  lines.push('- **SEO**: title `<NombreNegocio> – <CategoríaCorta> en <Ciudad>`. Meta description de 150-160 chars con beneficio + ciudad.');
-  lines.push('- **Datos estructurados**: añade un `<script type="application/ld+json">` con schema.org/LocalBusiness usando los datos de abajo.');
-  lines.push('');
-
-  // ========== DATOS DEL NEGOCIO ==========
-  lines.push('---');
-  lines.push('');
-  lines.push('## 8. Datos del negocio (úsalos tal cual, no inventes nada)');
-  lines.push('');
-  if (business.title) lines.push(`- **Nombre:** ${business.title}`);
-  if (business.subTitle) lines.push(`- **Subtítulo:** ${business.subTitle}`);
-  if (business.categoryName) lines.push(`- **Categoría principal:** ${business.categoryName}`);
-  if (business.categories && business.categories.length > 0) {
-    lines.push(`- **Categorías:** ${business.categories.join(', ')}`);
+  // ========== 5. TESTIMONIOS ==========
+  if (testimonials.length > 0) {
+    p(`## 5. Testimonios (${testimonials.length}, ya elegidos)`);
+    p(`Usa **estos ${testimonials.length} y solo estos**. Ya están filtrados: elogios limpios, concretos y sin nada que pueda envejecer mal. **Pégalos literalmente, sin reescribir ni corregir la ortografía** — una reseña con una falta parece real, una pulida parece inventada.`);
+    for (const t of testimonials) {
+      lines.push(`> "${t.text}"`);
+      lines.push(`> — **${t.name ?? 'Cliente'}**${t.stars ? ` · ${'★'.repeat(t.stars)}` : ''}`);
+      lines.push('');
+    }
+    p('Van en tarjetas de altura uniforme (`items-stretch`), en una fila en desktop y apiladas en móvil.');
   }
-  if (business.description) {
-    lines.push(`- **Descripción de Google:** ${business.description}`);
-  }
-  lines.push('');
 
-  lines.push('### Contacto');
-  if (business.address) lines.push(`- **Dirección:** ${business.address}`);
-  if (business.neighborhood) lines.push(`- **Barrio:** ${business.neighborhood}`);
-  if (business.city) lines.push(`- **Ciudad:** ${business.city}`);
-  if (business.postalCode) lines.push(`- **CP:** ${business.postalCode}`);
-  if (business.state) lines.push(`- **Provincia:** ${business.state}`);
-  if (business.countryCode) lines.push(`- **País:** ${business.countryCode}`);
-  if (business.phone) lines.push(`- **Teléfono:** ${business.phone} _(usa \`tel:${business.phoneUnformatted ?? business.phone}\` en los botones)_`);
-  if (business.website) lines.push(`- **Web actual:** ${business.website}`);
-  if (business.url) lines.push(`- **Google Maps:** ${business.url}`);
-  if (business.location) {
-    lines.push(`- **Coordenadas GPS:** ${business.location.lat}, ${business.location.lng} _(úsalas para incrustar Google Maps)_`);
+  // ========== 6. DATOS ==========
+  p('## 6. Datos del negocio');
+  p('_Todo lo de aquí es real y verificado. Lo que no esté aquí, no existe: no lo inventes ni lo deduzcas._');
+
+  const facts: string[] = [];
+  if (business.title) facts.push(`- **Nombre:** ${business.title}`);
+  if (business.subTitle) facts.push(`- **Subtítulo:** ${business.subTitle}`);
+  if (business.categoryName) facts.push(`- **Categoría:** ${business.categoryName}`);
+  if (business.categories && business.categories.length > 1) {
+    facts.push(`- **También es:** ${business.categories.filter(c => c !== business.categoryName).join(', ')}`);
   }
-  if (business.plusCode) lines.push(`- **Plus Code:** ${business.plusCode}`);
-  lines.push('');
+  if (business.description) facts.push(`- **Cómo se describe el negocio:** ${business.description}`);
+  if (facts.length > 0) p(...facts);
+
+  const contact: string[] = ['### Contacto'];
+  if (business.address) contact.push(`- **Dirección:** ${business.address}`);
+  if (business.neighborhood) contact.push(`- **Barrio:** ${business.neighborhood}`);
+  if (business.city) contact.push(`- **Ciudad:** ${business.city}`);
+  if (business.postalCode) contact.push(`- **CP:** ${business.postalCode}`);
+  if (business.state) contact.push(`- **Provincia:** ${business.state}`);
+  if (business.phone) contact.push(`- **Teléfono:** ${business.phone} _(en los botones: \`tel:${business.phoneUnformatted ?? business.phone}\`)_`);
+  if (business.url) contact.push(`- **Ficha de Google Maps:** ${business.url} _(para el enlace "Cómo llegar")_`);
+  if (business.location) contact.push(`- **Coordenadas:** ${business.location.lat}, ${business.location.lng} _(para incrustar el mapa)_`);
+  if (contact.length > 1) p(...contact);
+  // `business.website` se omite a propósito: es la web que esta sustituye. Publicarla
+  // manda al visitante a la página vieja, que es exactamente lo que el cliente paga por dejar atrás.
 
   if (business.openingHours && business.openingHours.length > 0) {
-    lines.push('### Horarios');
-    for (const h of business.openingHours) {
-      lines.push(`- **${h.day}:** ${h.hours}`);
-    }
-    lines.push('');
+    p('### Horarios', ...collapseHours(business.openingHours, lang).map(h => `- ${h}`));
   }
 
   const hasScore = typeof business.totalScore === 'number' && Number.isFinite(business.totalScore);
   const totalReviews = typeof business.reviewsCount === 'number' && Number.isFinite(business.reviewsCount)
     ? business.reviewsCount
     : null;
-
   const nReviews = totalReviews !== null ? totalReviews.toLocaleString('es-ES') : '';
 
   if (hasScore || totalReviews !== null) {
-    lines.push('### Reputación en Google (los números que van en la web)');
-    lines.push('');
+    const rep: string[] = ['### Valoración'];
     if (hasScore && totalReviews !== null) {
-      lines.push(`- **${business.totalScore!.toFixed(1)} sobre 5, con ${nReviews} reseñas.** Estos son los números completos del negocio en Google.`);
+      rep.push(`- **${business.totalScore!.toFixed(1)} sobre 5 con ${nReviews} reseñas.** Son los números reales y completos del negocio.`);
     } else if (hasScore) {
-      lines.push(`- **Puntuación media: ${business.totalScore!.toFixed(1)} sobre 5.**`);
+      rep.push(`- **${business.totalScore!.toFixed(1)} sobre 5.**`);
     } else {
-      lines.push(`- **${nReviews} reseñas en Google.**`);
+      rep.push(`- **${nReviews} reseñas.**`);
     }
-
-    // Distinción crítica: extraemos una muestra, pero la web debe presumir del total real.
-    if (totalReviews !== null && reviews.length > 0 && totalReviews > reviews.length) {
-      lines.push(`- ⚠️ Abajo tienes **${reviews.length} reseñas de esas ${nReviews}** (una muestra de las más relevantes, no todas). **Nunca escribas que el negocio tiene ${reviews.length} reseñas** — tiene ${nReviews}. La cifra que va en la web es siempre el total.`);
-    }
-
     if (business.reviewsDistribution) {
       const dist = business.reviewsDistribution;
       const five = Number(dist.fiveStar ?? dist['5'] ?? 0);
@@ -675,100 +862,73 @@ export function generatePromptMd(
       const sum = Object.values(dist).reduce((a, b) => a + (Number(b) || 0), 0);
       if (sum > 0 && Number.isFinite(five)) {
         const pctFive = Math.round((five / sum) * 100);
-        const pctTop = Math.round(((five + four) / sum) * 100);
-        lines.push(`- **Reparto:** ${pctFive}% de las reseñas son de 5 estrellas; ${pctTop}% son de 4 o 5.`);
-        if (pctFive >= 70) {
-          lines.push(`  - Es un dato fuerte: úsalo tal cual como titular de la sección de reseñas ("El ${pctFive}% de nuestros clientes nos puntúa con 5 estrellas").`);
-        }
+        rep.push(`- El ${pctFive}% son de cinco estrellas y el ${Math.round(((five + four) / sum) * 100)}% de cuatro o cinco.`);
       }
     }
-
-    lines.push('');
     if (hasScore && totalReviews !== null && totalReviews >= 10) {
-      lines.push(`**Dónde ponerlo:** la valoración va visible en el hero, junto al CTA principal, en formato corto y con las estrellas dibujadas: \`★ ${business.totalScore!.toFixed(1)} · ${nReviews} reseñas en Google\`. Repítelo como encabezado de la sección de testimonios. Es la prueba social más barata y la más creíble que tiene este negocio — no la escondas en el footer.`);
+      rep.push(`- **Va visible en el hero**, junto al CTA, así: \`★ ${business.totalScore!.toFixed(1)} · ${nReviews} reseñas\`. Es la prueba más creíble que tiene este negocio; no la escondas en el pie.`);
     } else if (totalReviews !== null && totalReviews < 10) {
-      lines.push('**Ojo:** son pocas reseñas. No pongas el contador en el hero — un "3 reseñas en Google" resta en vez de sumar. Muestra la valoración solo dentro de la sección de testimonios, sin el número total.');
+      rep.push('- **Son pocas: no pongas el contador en el hero.** Un "3 reseñas" resta. Deja la valoración solo junto a los testimonios y sin el total.');
     }
-    lines.push('');
+    p(...rep);
   }
 
   if (business.reviewsTags && business.reviewsTags.length > 0) {
-    lines.push('### Temas más mencionados en reseñas');
-    lines.push('_(úsalos como keywords reales en el copy de servicios/beneficios)_');
-    lines.push('');
-    for (const t of business.reviewsTags.slice(0, 12)) {
-      lines.push(`- ${t.title} (${t.count})`);
-    }
-    lines.push('');
+    p(
+      '### Vocabulario del negocio',
+      '_Las palabras que más repiten sus clientes. Úsalas al escribir el copy para que suene a este negocio, **sin decir de dónde salen**. Están sacadas en bruto: ignora las que no signifiquen nada fuera de contexto._',
+      '',
+      business.reviewsTags.slice(0, 10).map(t => t.title).join(' · '),
+    );
   }
 
   if (business.additionalInfo) {
     const infoLines: string[] = [];
     for (const [section, items] of Object.entries(business.additionalInfo)) {
-      const flags: string[] = [];
+      // Google repite la misma característica en varias entradas del mismo bloque.
+      const flags = new Set<string>();
       for (const item of items) {
         for (const [key, value] of Object.entries(item)) {
-          if (value === true) flags.push(key);
+          if (value === true) flags.add(key);
         }
       }
-      if (flags.length > 0) infoLines.push(`- **${section}:** ${flags.join(', ')}`);
+      if (flags.size > 0) infoLines.push(`- **${section}:** ${[...flags].join(', ')}`);
     }
     if (infoLines.length > 0) {
-      lines.push('### Servicios / características declaradas');
-      lines.push(...infoLines);
-      lines.push('');
+      p('### Servicios y características declaradas', '_Material de primera para las cards de servicios y para los iconos._', '', ...infoLines);
     }
   }
 
-  // ========== RESEÑAS ==========
-  const topReviews = pickTopReviews(reviews, business);
-  if (topReviews.length > 0) {
-    lines.push(`## 9. Testimonios (${topReviews.length}, ya elegidos)`);
-    lines.push('');
-    lines.push(`Usa **estas ${topReviews.length} y solo estas**. Ya están filtradas: son las de 4-5 estrellas más concretas, sin repetir el mismo mensaje y sin las de una línea que no dicen nada. No vuelvas a elegir entre las de \`reviews.md\` — ese archivo es material de consulta, no un menú.`);
-    lines.push('');
-    lines.push('**Pégalas literalmente, sin reescribir ni corregir la ortografía.** Una reseña con una falta parece real; una reseña pulida parece inventada, y eso mata la prueba social. Si una es larguísima, córtala por una frase completa y remata con «…», pero no la reformules.');
-    lines.push('');
-    for (const r of topReviews) {
-      lines.push(`> "${r.text}"`);
-      lines.push(`> — **${r.name}** · ${'★'.repeat(r.stars ?? 0)}${r.publishAt ? ` · ${r.publishAt}` : ''}`);
-      lines.push('');
-    }
-    lines.push('Maquétalas en cards de altura uniforme (`items-stretch`, no dejes cards de distinto alto en la misma fila) con la valoración de Google como encabezado de la sección. Si alguna tiene respuesta del propietario en `reviews.md`, puedes añadirla debajo en gris más pequeño: demuestra que el negocio contesta.');
-    lines.push('');
-  }
+  // ========== 7. PROHIBIDO ==========
+  p('## 7. Prohibido');
+  p('Cada punto de esta lista es un fallo que ya ha arruinado una web generada así:');
+  p(
+    '- **No publiques ni enlaces ninguna web anterior del negocio.** Esta la sustituye. Si te encuentras una URL antigua en algún dato, ignórala. Los únicos enlaces externos son el mapa de Google y las redes sociales si constan.',
+    '- **Ningún precio, ni una cifra en euros.** Ni de los datos, ni sacado de una reseña, ni inventado. Los precios cambian y publicar uno viejo es un problema real para el dueño. Habla de servicios, no de tarifas.',
+    '- **No cites las reseñas ni a Google como fuente de un argumento.** Nada de "según nuestros clientes", "lo más mencionado en las reseñas" o "los usuarios destacan". El badge de valoración y los testimonios firmados sí van: esos son la prueba, no una cita.',
+    '- **No inventes datos.** Ni años de experiencia, ni número de clientes, ni certificaciones, ni premios, ni un email, ni "desde 1998". Si no está en la sección 6, no existe.',
+    `- **Ninguna imagen que no esté en la sección 4.** Ni de banco de imágenes, ni generada, ni placeholders, ni iconos usados como si fueran fotos.${anyPhotos ? '' : ' Esta web va sin fotos y así se queda.'}`,
+    '- **Ningún testimonio que no esté en la sección 5**, y ninguno reescrito.',
+    '- **Nada de lorem ipsum**, secciones a medias, "próximamente" ni enlaces que no lleven a ninguna parte.',
+    '- **Ningún formulario mudo.** Si montas uno, que al enviar diga algo claro y deje el teléfono a mano.',
+  );
 
-  // ========== CHECKLIST FINAL ==========
-  lines.push('---');
-  lines.push('');
-  lines.push('## 10. Checklist final antes de entregar');
-  lines.push('');
-  lines.push('Antes de dar la web por hecha, verifica:');
-  lines.push('');
-  lines.push('- [ ] **Cada imagen de la web sale de la lista de la sección 5.** Ni una de stock, generada o placeholder colada de más');
-  lines.push('- [ ] Cada foto está en el puesto que tenía asignado, y ninguna aparece dos veces');
-  lines.push('- [ ] Ninguna foto está suelta en medio de un párrafo de texto');
-  lines.push('- [ ] Todas las fotos del mismo grid tienen el mismo aspect-ratio');
-  lines.push('- [ ] El hero usa **una sola** foto (no un collage) — o ninguna, si no había foto de portada');
-  lines.push('- [ ] Los CTAs llaman/escriben directo: `tel:`, `mailto:`, link de Google Maps');
-  lines.push('- [ ] La puntuación de Google aparece visible como prueba social');
-  lines.push('- [ ] Mapa de Google incrustado en la sección de contacto con las coordenadas reales');
-  lines.push('- [ ] Schema.org/LocalBusiness en JSON-LD con los datos reales');
-  lines.push('- [ ] Mobile testeado: el hero se ve bien en 375px, los grids se reordenan, el menú es hamburguesa');
-  lines.push('- [ ] Las secciones respiran (96px+ entre ellas en desktop)');
-  lines.push('- [ ] No hay lorem ipsum ni nada inventado');
-  lines.push('');
-  lines.push('## Archivos en este ZIP');
-  lines.push('');
-  lines.push('- `prompt.md` — este archivo, el prompt completo');
-  lines.push('- `data.json` — todos los datos del negocio en formato estructurado');
-  lines.push('- `reviews.md` — todas las reseñas (no solo las destacadas)');
-  lines.push('- `images/` — todas las fotos descargadas localmente + `urls.txt` con las URLs originales');
-  lines.push('');
+  // ========== 8. SEGUNDO MENSAJE ==========
+  p('## 8. Cuando la web esté montada (esto es para después)');
+  p(
+    'Termina primero la web entera con lo de arriba y dime que has acabado. **Solo entonces**, si hace falta textura, puedes generar imágenes **abstractas**: un patrón sutil de fondo, un degradado con grano, una forma orgánica en el color de acento, una textura de papel. Siempre por debajo del contenido y sin robar protagonismo.',
+  );
+  p(`**Nunca generes imágenes de ${FORBIDDEN_IMAGERY[kind]}.** Esta web solo puede enseñar fotos reales de este negocio; una imagen generada de algo que no existe es publicidad engañosa y el dueño responde por ella.`);
+
+  // ========== CIERRE ==========
+  p('---');
+  p(
+    '**Qué más hay en el ZIP:** `data.json` con todos los datos en bruto, `reviews.md` con todas las reseñas y `images/` con las fotos descargadas. ' +
+    '`reviews.md` es material de consulta, **no un menú**: los testimonios que van en la web son los de la sección 5.',
+  );
 
   return lines.join('\n');
 }
-
 export function generateReviewsMd(reviews: ReviewData[], businessTitle?: string): string {
   const lines: string[] = [];
   lines.push(`# Todas las reseñas de ${businessTitle ?? 'este negocio'}`);
