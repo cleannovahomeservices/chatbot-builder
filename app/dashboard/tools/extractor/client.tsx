@@ -423,7 +423,7 @@ export function ExtractorClient({
           </li>
           <li className="flex gap-3">
             <span className="rounded-full bg-violet-500/20 text-violet-300 h-5 w-5 flex items-center justify-center text-[11px] font-semibold shrink-0">3</span>
-            <span>Descarga el ZIP. Dentro hay un <code className="text-white/80">prompt.md</code> listo para pegar en Lovable, Cursor, v0 o Bolt.</span>
+            <span>Descarga el ZIP y abre el <code className="text-white/80">LEEME.txt</code>: te dice qué pegar y en qué orden. Para Lovable van el <code className="text-white/80">knowledge.md</code> y tres mensajes cortos; si prefieres pegarlo todo de una vez, o usas Cursor, v0 o Bolt, tienes <code className="text-white/80">prompt-completo.md</code>.</span>
           </li>
         </ol>
       </div>

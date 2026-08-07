@@ -3,6 +3,7 @@ import JSZip from 'jszip';
 import { getSession } from '@/lib/session';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { generatePromptMd, generateReviewsMd } from '@/lib/extraction-format';
+import { generatePromptPack } from '@/lib/extraction-pack';
 
 export const maxDuration = 60;
 
@@ -61,8 +62,16 @@ export async function GET(
 
   const zip = new JSZip();
 
-  const promptMd = generatePromptMd(business, reviews, photoUrls, photoMetadata);
-  zip.file('prompt.md', promptMd);
+  // Lovable trabaja mejor con mensajes cortos que con un muro: el pack es lo que
+  // recomendamos y `prompt-completo.md` queda como alternativa para quien prefiera
+  // pegarlo todo de una vez (o para Cursor, v0 y Bolt, donde no hay cola de mensajes).
+  const pack = generatePromptPack(business, reviews, photoUrls, photoMetadata);
+  zip.file('LEEME.txt', pack.readme);
+  zip.file('knowledge.md', pack.knowledge);
+  for (const prompt of pack.prompts) {
+    zip.file(`prompt-${prompt.n}.md`, prompt.body);
+  }
+  zip.file('prompt-completo.md', generatePromptMd(business, reviews, photoUrls, photoMetadata));
 
   zip.file('data.json', JSON.stringify({ business, reviews, photoUrls, photoMetadata }, null, 2));
 

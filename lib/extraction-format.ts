@@ -91,7 +91,7 @@ export function inferBusinessKind(business: BusinessData): BusinessKind {
 // Una dirección de arte concreta —con hex y tipografías con nombre— da mejor resultado
 // que describir una sensación ("cálido y acogedor"), y de paso se salta el paso de
 // "Design guidance" de Lovable, que si no rellena él con su estilo por defecto.
-interface ArtDirection {
+export interface ArtDirection {
   /** En una frase: qué tiene que sentir quien entra. */
   vibe: string;
   bg: string;
@@ -111,7 +111,7 @@ interface ArtDirection {
   sections: string[];
 }
 
-const KIND_ART: Record<BusinessKind, ArtDirection> = {
+export const KIND_ART: Record<BusinessKind, ArtDirection> = {
   food: {
     vibe: 'Apetitoso y cálido, de sitio al que vuelves. Nada corporativo.',
     bg: '#FBF7F1', surface: '#F3EADF', text: '#1C1614', muted: '#6B5B4F',
@@ -332,7 +332,7 @@ function scoreReview(r: ReviewData, topics: string[]): number {
 }
 
 /** Un testimonio listo para publicar: el texto ya recortado y de quién es. */
-interface Testimonial {
+export interface Testimonial {
   text: string;
   name?: string;
   stars?: number;
@@ -349,7 +349,7 @@ const MAX_TESTIMONIALS = 3;
  * En los dos caminos pasa el filtro de higiene: la reseña con un "pero" en la última
  * frase o con un precio de hace dos años no se publica la elija quien la elija.
  */
-function pickTestimonials(reviews: ReviewData[], business: BusinessData): Testimonial[] {
+export function pickTestimonials(reviews: ReviewData[], business: BusinessData): Testimonial[] {
   const topics = (business.reviewsTags ?? [])
     .slice(0, 10)
     .map(t => t.title.toLowerCase())
@@ -432,7 +432,7 @@ function to24(hour: string, minutes: string | undefined, meridiem: string | unde
  * "Lunes: 13-16, Martes: 13-16, Miércoles: 13-16…" ocupa siete líneas y se lee fatal.
  * Los días seguidos con el mismo horario se colapsan en uno.
  */
-function collapseHours(hours: Array<{ day: string; hours: string }>, lang: 'es' | 'en'): string[] {
+export function collapseHours(hours: Array<{ day: string; hours: string }>, lang: 'es' | 'en'): string[] {
   const out: string[] = [];
   let i = 0;
   while (i < hours.length) {
@@ -540,7 +540,7 @@ const REAL_TYPE_PRIORITY: Record<PhotoType, number> = {
   logo: 0,
 };
 
-function curateRealPhotos(metadata: PhotoMetadata[], maxCount = 6): PhotoMetadata[] {
+export function curateRealPhotos(metadata: PhotoMetadata[], maxCount = 6): PhotoMetadata[] {
   const real = metadata.filter(m => !m.generated);
 
   // Si pasó el ranking comparativo, esa decisión manda: ya se tomó viendo todas las
@@ -586,7 +586,7 @@ const DISPLAY_WEIGHTS: Record<string, string> = {
   'Playfair Display': '400;600;800',
 };
 
-function googleFontsHref(art: ArtDirection): string {
+export function googleFontsHref(art: ArtDirection): string {
   const fam = (name: string, weights: string) =>
     `family=${name.replace(/ /g, '+')}${weights ? `:wght@${weights}` : ''}`;
   const display = fam(art.displayFont, DISPLAY_WEIGHTS[art.displayFont] ?? '');
@@ -595,7 +595,7 @@ function googleFontsHref(art: ArtDirection): string {
 }
 
 /** Lo que se generaría de más está prohibido; el ejemplo cambia según el negocio. */
-const FORBIDDEN_IMAGERY: Record<BusinessKind, string> = {
+export const FORBIDDEN_IMAGERY: Record<BusinessKind, string> = {
   food: 'platos, el local o clientes',
   lodging: 'habitaciones, el edificio o el entorno',
   beauty: 'trabajos, el salón o personas',
