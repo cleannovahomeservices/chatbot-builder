@@ -14,6 +14,11 @@
   var s = config.secondaryColor || '#4338ca';
   var iconType = config.icon || 'chat';
   var greeting = config.greeting || '¡Hola! ¿En qué puedo ayudarte hoy?';
+  var avatarUrl = config.avatarUrl || '';
+  var hideBranding = config.hideBranding === true;
+  var handoffWhatsapp = config.handoffWhatsapp || '';
+  var handoffEmail = config.handoffEmail || '';
+  var bookingUrl = config.bookingUrl || '';
 
   function hexToRgb(hex) {
     return parseInt(hex.slice(1,3),16)+','+parseInt(hex.slice(3,5),16)+','+parseInt(hex.slice(5,7),16);
@@ -269,8 +274,19 @@
     return themes[wStyle] || themes.bubble;
   }
 
+  // CSS extra (independiente del tema) para avatar, botones de acción y branding
+  var extraCSS =
+    '#cb-head .cb-avatar{width:26px;height:26px;border-radius:50%;object-fit:cover;flex-shrink:0}' +
+    '#cb-bubble .cb-bubble-av{width:100%;height:100%;border-radius:inherit;object-fit:cover}' +
+    '#cb-actions{display:flex;gap:6px;flex-wrap:wrap;padding:8px 12px;background:rgba(127,127,127,.06)}' +
+    '.cb-action{display:inline-flex;align-items:center;gap:5px;font:600 11px/1 sans-serif;padding:7px 11px;border-radius:999px;text-decoration:none;cursor:pointer;border:none;color:#fff;background:' + p + '}' +
+    '.cb-action:hover{opacity:.88}' +
+    '#cb-brand{padding:7px 12px;text-align:center;font:400 10px/1.4 sans-serif;color:rgba(127,127,127,.9)}' +
+    '#cb-brand a{color:inherit;text-decoration:none;font-weight:600}' +
+    '#cb-brand a:hover{text-decoration:underline}';
+
   var styleEl = document.createElement('style');
-  styleEl.textContent = buildCSS();
+  styleEl.textContent = buildCSS() + extraCSS;
   document.head.appendChild(styleEl);
 
   var iconPaths = {
@@ -281,14 +297,36 @@
     pair:   '<path d="M16 4C12 4 9 6.7 9 10c0 1.8.8 3.4 2.2 4.5l-.8 2.5 2.8-1.2c.8.3 1.8.4 2.8.4 4 0 7-2.7 7-6S20 4 16 4zM8 9C4 9 1 11.7 1 15c0 1.8.8 3.4 2.2 4.5l-.8 2.5 2.8-1.2c.8.3 1.8.4 2.8.4 4 0 7-2.7 7-6S12 9 8 9z"/>',
   };
 
+  function esc(x) { return (x || '').replace(/"/g, '&quot;'); }
+
+  function buildActions() {
+    var b = [];
+    if (handoffWhatsapp) {
+      var num = handoffWhatsapp.replace(/[^0-9]/g, '');
+      if (num) b.push('<a class="cb-action" href="https://wa.me/' + num + '" target="_blank" rel="noopener">💬 WhatsApp</a>');
+    }
+    if (handoffEmail) b.push('<a class="cb-action" href="mailto:' + esc(handoffEmail) + '">✉️ Email</a>');
+    if (bookingUrl) b.push('<a class="cb-action" href="' + esc(bookingUrl) + '" target="_blank" rel="noopener">📅 Reservar cita</a>');
+    return b.length ? '<div id="cb-actions">' + b.join('') + '</div>' : '';
+  }
+
   var bubble = document.createElement('div');
   bubble.id = 'cb-bubble';
-  bubble.innerHTML = '<svg viewBox="0 0 24 24">' + (iconPaths[iconType] || iconPaths.chat) + '</svg>';
+  bubble.innerHTML = avatarUrl
+    ? '<img class="cb-bubble-av" src="' + esc(avatarUrl) + '" alt=""/>'
+    : '<svg viewBox="0 0 24 24">' + (iconPaths[iconType] || iconPaths.chat) + '</svg>';
   document.body.appendChild(bubble);
+
+  var headLeft = avatarUrl
+    ? '<img class="cb-avatar" src="' + esc(avatarUrl) + '" alt=""/>'
+    : '<div id="cb-head-dot"></div>';
+  var brandHtml = hideBranding
+    ? ''
+    : '<div id="cb-brand">Con tecnología de <a href="https://botluma.com" target="_blank" rel="noopener">BotLuma</a></div>';
 
   var win = document.createElement('div');
   win.id = 'cb-win';
-  win.innerHTML = '<div id="cb-head"><div id="cb-head-dot"></div>' + botName + '</div><div id="cb-msgs"><div class="cb-msg cb-bot">' + greeting + '</div></div><div id="cb-form"><input id="cb-inp" type="text" placeholder="Escribe un mensaje…"/><button id="cb-btn">➤</button></div>';
+  win.innerHTML = '<div id="cb-head">' + headLeft + botName + '</div>' + buildActions() + '<div id="cb-msgs"><div class="cb-msg cb-bot">' + greeting + '</div></div><div id="cb-form"><input id="cb-inp" type="text" placeholder="Escribe un mensaje…"/><button id="cb-btn">➤</button></div>' + brandHtml;
   document.body.appendChild(win);
 
   var msgs = win.querySelector('#cb-msgs');

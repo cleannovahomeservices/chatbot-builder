@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { removeWidget, injectWidget } from '@/lib/github';
+import { getUserPlan } from '@/lib/plans';
 
 export async function DELETE(
   request: NextRequest,
@@ -53,7 +54,10 @@ export async function PATCH(
 
   // --- Customize action: update colors, system prompt, re-inject widget ---
   if (body.action === 'customize') {
-    const { primaryColor, secondaryColor, widgetStyle, iconType, systemPrompt, name, greeting } = body as {
+    const {
+      primaryColor, secondaryColor, widgetStyle, iconType, systemPrompt, name, greeting,
+      handoffWhatsapp, handoffEmail, bookingUrl, hideBranding,
+    } = body as {
       primaryColor?: string;
       secondaryColor?: string;
       widgetStyle?: string;
@@ -61,6 +65,10 @@ export async function PATCH(
       systemPrompt?: string;
       name?: string;
       greeting?: string;
+      handoffWhatsapp?: string | null;
+      handoffEmail?: string | null;
+      bookingUrl?: string | null;
+      hideBranding?: boolean;
     };
 
     const { data: chatbot } = await db
@@ -79,6 +87,20 @@ export async function PATCH(
     const prompt = systemPrompt !== undefined ? systemPrompt : chatbot.system_prompt;
     const updatedName = name?.trim() || chatbot.name;
     const updatedGreeting = greeting !== undefined ? greeting : (chatbot.greeting ?? '¡Hola! ¿En qué puedo ayudarte hoy?');
+
+    // Handoff / cita: string vacío -> null; si no viene, se conserva el valor actual
+    const norm = (v: string | null | undefined, current: unknown) =>
+      v === undefined ? (current ?? null) : (v && v.trim() ? v.trim() : null);
+    const wa = norm(handoffWhatsapp, chatbot.handoff_whatsapp);
+    const em = norm(handoffEmail, chatbot.handoff_email);
+    const booking = norm(bookingUrl, chatbot.booking_url);
+
+    // Quitar branding solo lo permiten los planes de pago (starter/pro/unlimited)
+    let hide = hideBranding !== undefined ? !!hideBranding : !!chatbot.hide_branding;
+    if (hide) {
+      const plan = await getUserPlan(user.id);
+      if (plan === 'free') hide = false;
+    }
 
     // Re-inject widget with new config
     if (chatbot.github_repo && user.github_access_token && chatbot.status === 'active') {
@@ -99,6 +121,10 @@ export async function PATCH(
       system_prompt: prompt,
       name: updatedName,
       greeting: updatedGreeting,
+      handoff_whatsapp: wa,
+      handoff_email: em,
+      booking_url: booking,
+      hide_branding: hide,
     };
     let result = await db
       .from('chatbots')

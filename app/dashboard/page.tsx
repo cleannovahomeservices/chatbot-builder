@@ -6,17 +6,7 @@ import Link from 'next/link';
 import { ChatbotCard } from './chatbot-card';
 import { HelpWidget } from './help-widget';
 import { PlanBanner, NewChatbotButton } from './plan-banner';
-
-interface Chatbot {
-  id: string;
-  name: string;
-  github_repo: string;
-  n8n_webhook_url: string;
-  status: string;
-  widget_injected: boolean;
-  created_at: string;
-  updated_at: string;
-}
+import type { Chatbot } from '@/lib/types';
 
 export default async function DashboardPage() {
   const user = await getSession();
