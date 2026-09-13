@@ -668,7 +668,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No se pudo extraer contenido útil de esta web. La página puede requerir inicio de sesión, estar bloqueando scrapers, o el contenido es principalmente visual.' }, { status: 422 });
     }
 
-    return NextResponse.json({ text: textContent, primaryColor, secondaryColor, widgetStyle, detectedLanguage });
+    // Contacto estructurado (para autorrellenar WhatsApp/email del chatbot)
+    const pick = (label: string) => {
+      const line = contactInfo.split('\n').find((l) => l.startsWith(label + ': '));
+      return line ? line.slice(label.length + 2).split(',')[0].trim() : '';
+    };
+    const contact = { whatsapp: pick('WhatsApp'), email: pick('Email'), phone: pick('Teléfono') };
+
+    return NextResponse.json({ text: textContent, primaryColor, secondaryColor, widgetStyle, detectedLanguage, contact });
   } catch {
     return NextResponse.json({ error: 'No se pudo acceder a la URL' }, { status: 422 });
   }

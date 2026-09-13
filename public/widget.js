@@ -3,11 +3,20 @@
   if (window.__chatbotWidgetLoaded) return;
   window.__chatbotWidgetLoaded = true;
 
-  var config = window.ChatbotConfig || {};
-  var chatbotId = config.chatbotId;
-  var webhookUrl = config.webhookUrl;
+  // Origen del que se sirvió este script = origen de la API (botluma.com o el dominio de despliegue)
+  var API = (function () {
+    try { var s = document.currentScript && document.currentScript.src; if (s) return new URL(s).origin; } catch (e) {}
+    return 'https://chatbot-builder-iota.vercel.app';
+  })();
+
+  var baked = window.ChatbotConfig || {};
+  var chatbotId = baked.chatbotId;
+  var webhookUrl = baked.webhookUrl;
   if (!chatbotId && !webhookUrl) return;
 
+  // boot() monta el widget con una configuración concreta. Se llama con la config
+  // en vivo del servidor (si se puede) o con la "horneada" en el snippet como respaldo.
+  function boot(config) {
   var botName = config.name || 'Asistente';
   var wStyle = config.style || 'bubble';
   var p = config.primaryColor || '#7c3aed';
@@ -354,7 +363,7 @@
     msgs.scrollTop = msgs.scrollHeight;
 
     try {
-      var r = await fetch('https://chatbot-builder-iota.vercel.app/api/chat', {
+      var r = await fetch(API + '/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(chatbotId ? { chatbotId: chatbotId, message: text, sessionId: sessionId } : { webhookUrl: webhookUrl, message: text, sessionId: sessionId }),
@@ -371,4 +380,21 @@
 
   btn.addEventListener('click', send);
   inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') send(); });
+  } // fin de boot()
+
+  // Arranque: intenta leer la config en vivo del servidor; si falla, usa la horneada.
+  if (chatbotId) {
+    fetch(API + '/api/widget/' + chatbotId)
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (live) {
+        if (live && live.status === 'inactive') return; // desactivado: no se muestra
+        var merged = {};
+        for (var k in baked) merged[k] = baked[k];
+        if (live) { for (var k2 in live) { if (live[k2] !== null && live[k2] !== undefined) merged[k2] = live[k2]; } }
+        boot(merged);
+      })
+      .catch(function () { boot(baked); });
+  } else {
+    boot(baked);
+  }
 })();

@@ -97,6 +97,7 @@ export function CreateWizard({
   const [widgetStyle, setWidgetStyle] = useState('bubble');
   const [iconType, setIconType] = useState('chat');
   const [sourceUrl, setSourceUrl] = useState<string>("");
+  const [scrapeContact, setScrapeContact] = useState<{ whatsapp?: string; email?: string } | null>(null);
   const [wizardGreeting, setWizardGreeting] = useState('¡Hola! ¿En qué puedo ayudarte hoy?');
   const [deployMethod, setDeployMethod] = useState<'github' | 'download' | null>(null);
 
@@ -156,6 +157,7 @@ export function CreateWizard({
           lang = d.detectedLanguage;
           setWizardGreeting(lang === 'en' ? 'Hi! How can I help you today?' : '¡Hola! ¿En qué puedo ayudarte hoy?');
         }
+        if (d.contact) setScrapeContact(d.contact);
         setSourceUrl(userInput);
       }
       const r = await fetch("/api/generate-prompt", {
@@ -234,6 +236,7 @@ export function CreateWizard({
             lang = d.detectedLanguage;
             setWizardGreeting(lang === 'en' ? 'Hi! How can I help you today?' : '¡Hola! ¿En qué puedo ayudarte hoy?');
           }
+          if (d.contact) setScrapeContact(d.contact);
           setSourceUrl(initialInput);
         }
         const r = await fetch("/api/generate-prompt", {
@@ -283,7 +286,7 @@ export function CreateWizard({
       const res = await fetch("/api/chatbots", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: chatbotName, systemPrompt: prompt, githubRepo: selectedRepo, sourceUrl, greeting: wizardGreeting, ...colors }),
+        body: JSON.stringify({ name: chatbotName, systemPrompt: prompt, githubRepo: selectedRepo, sourceUrl, greeting: wizardGreeting, handoffWhatsapp: scrapeContact?.whatsapp, handoffEmail: scrapeContact?.email, ...colors }),
       });
       const data = await res.json();
       if (data.chatbot) {
@@ -311,7 +314,7 @@ export function CreateWizard({
       const res = await fetch("/api/chatbots", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: chatbotName, systemPrompt: prompt, githubRepo: null, sourceUrl, greeting: wizardGreeting, ...colors }),
+        body: JSON.stringify({ name: chatbotName, systemPrompt: prompt, githubRepo: null, sourceUrl, greeting: wizardGreeting, handoffWhatsapp: scrapeContact?.whatsapp, handoffEmail: scrapeContact?.email, ...colors }),
       });
       const data = await res.json();
       if (data.chatbot) {

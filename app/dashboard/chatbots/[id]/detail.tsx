@@ -108,8 +108,8 @@ export function ChatbotDetail({ chatbot: initial, plan }: { chatbot: Chatbot; pl
       if (data.chatbot) {
         // Refleja lo que el backend guardó (p. ej. hideBranding forzado a false en plan free)
         setHideBranding(!!data.chatbot.hide_branding);
-        setFlash('Cambios guardados');
-        setTimeout(() => setFlash(''), 2500);
+        setFlash('Guardado ✓ — se aplica solo en tu web');
+        setTimeout(() => setFlash(''), 3000);
         router.refresh();
       } else {
         setSaveError(data.error || 'Error al guardar');
@@ -168,6 +168,12 @@ export function ChatbotDetail({ chatbot: initial, plan }: { chatbot: Chatbot; pl
       if (scrapeData.primaryColor) setPrimary(scrapeData.primaryColor);
       if (scrapeData.secondaryColor) setSecondary(scrapeData.secondaryColor);
       if (scrapeData.widgetStyle) setStyle(scrapeData.widgetStyle);
+      // Autorrellena contacto solo si está vacío (no pisa lo que el usuario ya puso)
+      const c = scrapeData.contact;
+      if (c) {
+        if (c.whatsapp && !whatsapp.trim()) setWhatsapp(c.whatsapp);
+        if (c.email && !email.trim()) setEmail(c.email);
+      }
       const genRes = await fetch('/api/generate-prompt', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ input: scrapeData.text }),
@@ -485,7 +491,8 @@ export function ChatbotDetail({ chatbot: initial, plan }: { chatbot: Chatbot; pl
           )}
 
           <p className="text-xs text-white/30">
-            Recuerda <b>guardar los cambios</b> para que el widget instalado use la última configuración.
+            El widget lee la configuración <b>en vivo</b>: al <b>guardar</b>, los cambios (colores, avatar, saludo,
+            contacto, marca) se aplican solos en la web donde ya esté instalado, <b>sin re-inyectar ni volver a subir el código</b>.
           </p>
 
           {!isDownloaded && (

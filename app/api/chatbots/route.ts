@@ -11,6 +11,7 @@ export async function POST(request: NextRequest) {
   const {
     name, systemPrompt, githubRepo,
     primaryColor, secondaryColor, widgetStyle, iconType, sourceUrl, greeting,
+    handoffWhatsapp, handoffEmail, bookingUrl,
   } = await request.json();
 
   if (!name || !systemPrompt) {
@@ -47,6 +48,9 @@ export async function POST(request: NextRequest) {
       vercel_project_id: null,
       widget_injected: false,
       status: 'active',
+      handoff_whatsapp: (handoffWhatsapp as string | undefined)?.trim() || null,
+      handoff_email: (handoffEmail as string | undefined)?.trim() || null,
+      booking_url: (bookingUrl as string | undefined)?.trim() || null,
     };
 
     const defaultGreeting = (greeting as string | undefined)?.trim() || '¡Hola! ¿En qué puedo ayudarte hoy?';
