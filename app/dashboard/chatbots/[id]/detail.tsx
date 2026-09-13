@@ -6,6 +6,8 @@ import { useRouter } from 'next/navigation';
 import type { Chatbot } from '@/lib/types';
 import type { PlanName } from '@/lib/plans';
 import { InlineChat } from '@/components/inline-chat';
+import { ConversationsPanel } from './conversations-panel';
+import { InsightsPanel } from './insights-panel';
 import { buildSnippet, buildIframeSnippet, buildMarkdown, type WidgetSnippetConfig } from '@/lib/widget-snippet';
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://chatbot-builder-iota.vercel.app';
@@ -20,14 +22,16 @@ const ICON_OPTIONS = [
 
 const WIDGET_STYLES = ['bubble','minimal','rounded','dark','neon','corporate','soft','floating','compact','retro'] as const;
 
-type Tab = 'probar' | 'apariencia' | 'instalar' | 'contacto' | 'marca';
+type Tab = 'probar' | 'conversaciones' | 'analisis' | 'apariencia' | 'instalar' | 'contacto' | 'marca';
 
 const TABS: { id: Tab; label: string }[] = [
-  { id: 'probar',     label: 'Probador' },
-  { id: 'apariencia', label: 'Apariencia' },
-  { id: 'contacto',   label: 'Contacto y cita' },
-  { id: 'instalar',   label: 'Instalar' },
-  { id: 'marca',      label: 'Marca' },
+  { id: 'probar',         label: 'Probador' },
+  { id: 'conversaciones', label: 'Conversaciones' },
+  { id: 'analisis',       label: 'Qué quiere tu gente' },
+  { id: 'apariencia',     label: 'Apariencia' },
+  { id: 'contacto',       label: 'Contacto y cita' },
+  { id: 'instalar',       label: 'Instalar' },
+  { id: 'marca',          label: 'Marca' },
 ];
 
 export function ChatbotDetail({ chatbot: initial, plan }: { chatbot: Chatbot; plan: PlanName }) {
@@ -285,6 +289,12 @@ export function ChatbotDetail({ chatbot: initial, plan }: { chatbot: Chatbot; pl
           {previewNode}
         </div>
       )}
+
+      {/* --- CONVERSACIONES --- */}
+      {tab === 'conversaciones' && <ConversationsPanel chatbotId={initial.id} />}
+
+      {/* --- QUÉ QUIERE TU GENTE --- */}
+      {tab === 'analisis' && <InsightsPanel chatbotId={initial.id} />}
 
       {/* --- APARIENCIA (split: ajustes | preview en vivo) --- */}
       {tab === 'apariencia' && (
